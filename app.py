@@ -96,19 +96,27 @@ def montar_pesquisa(d):
     return p
 
 
-def gerar_e_baixar(api_key, nome, pesquisa, tipo, total_linhas, log):
-    payload = {"total_linhas": int(total_linhas), "nome": nome,
+def disparar_solicitacao(api_key, nome, pesquisa, log):
+    """
+    Apenas DISPARA a solicitação na Casa dos Dados e retorna imediatamente.
+    NÃO fica esperando o arquivo ficar pronto (isso travava o worker).
+    O usuário acompanha na aba 'Minhas solicitações'.
+    """
+    payload = {"total_linhas": 0, "nome": nome,
                "tipo": "csv", "pesquisa": pesquisa}
-    log("📤 Enviando solicitação...")
+    log("📤 Enviando solicitação para a Casa dos Dados...")
     try:
         r = requests.post(ENDPOINT_GERAR, json=payload,
                           headers=_h(api_key), timeout=30)
     except requests.exceptions.RequestException as e:
-        log(f"❌ Erro de conexão: {e}"); return None
+        log(f"❌ Erro de conexão: {e}")
+        return None
     if r.status_code == 401:
-        log("❌ Chave de API inválida (401)."); return None
+        log("❌ Chave de API inválida (401).")
+        return None
     if r.status_code == 403:
-        log("❌ Sem saldo/permissão (403)."); return None
+        log("❌ Sem saldo/permissão (403).")
+        return None
     if r.status_code not in (200, 201, 202):
         try:
             detalhe = r.json()
@@ -120,53 +128,14 @@ def gerar_e_baixar(api_key, nome, pesquisa, tipo, total_linhas, log):
         return None
     uuid = r.json().get("arquivo_uuid")
     if not uuid:
-        log("❌ API não retornou identificador."); return None
-    log(f"✅ Aceito. ID da solicitação: {uuid}")
-    log("⏳ O arquivo está sendo gerado pela Casa dos Dados...")
-
-    link = None
-    for t in range(1, POLL_MAX + 1):
-        try:
-            rc = requests.get(f"{ENDPOINT_CONSULTAR}/{uuid}",
-                              headers=_h(api_key), timeout=20)
-            if rc.status_code == 200:
-                link = rc.json().get("link")
-                if link:
-                    log("✅ Arquivo pronto!"); break
-            elif rc.status_code == 404:
-                log("❌ Solicitação não encontrada (404)."); return None
-        except requests.exceptions.RequestException:
-            pass
-        espera = 4 if t <= 10 else (8 if t <= 40 else 12)
-        if t % 5 == 0 or t <= 5:
-            log(f"⏳ Processando... (verificação {t})")
-        time.sleep(espera)
-    if not link:
-        log("⚠️ O arquivo ainda não ficou pronto a tempo, mas NÃO foi "
-            "perdido nem o crédito desperdiçado.")
-        log(f"➡️ Vá na aba 'Minhas solicitações' e baixe quando o "
-            f"status estiver 'processado'. ID: {uuid}")
+        log("❌ API não retornou identificador.")
         return None
-
-    log("⬇️ Baixando...")
-    try:
-        rd = requests.get(link, timeout=180); rd.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        log(f"❌ Erro ao baixar: {e}"); return None
-
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    ext = "csv"
-    ch = f"{nome}_{ts}"
-    _ARQUIVOS[ch] = {
-        "conteudo": rd.content, "filename": f"{ch}.{ext}",
-        "mime": "text/csv",
-        "criado": time.time(),
-    }
-    agora = time.time()
-    for k in [k for k, v in _ARQUIVOS.items() if agora - v["criado"] > 3600]:
-        _ARQUIVOS.pop(k, None)
-    log(f"✅ Concluído! ({len(rd.content)/1024:.1f} KB)")
-    return ch
+    log(f"✅ Solicitação aceita! ID: {uuid}")
+    log("📋 O arquivo está sendo gerado em segundo plano pela "
+        "Casa dos Dados.")
+    log("➡️ Vá em 'Minhas solicitações' e clique em 'Atualizar' até "
+        "o status virar 'processado'. Aí baixe.")
+    return uuid
 
 
 @app.route("/")
@@ -342,11 +311,14 @@ def api_captar():
     if not d.get("cnae", "").strip():
         return jsonify({"ok": False, "msg": "Informe ao menos um CNAE."})
     msgs = []
-    ch = gerar_e_baixar(
+    # Apenas dispara — responde em segundos, não trava o worker
+    uuid = disparar_solicitacao(
         api_key=key, nome=d.get("nome", "captacao_cnpj"),
-        pesquisa=montar_pesquisa(d), tipo=d.get("tipo", "csv"),
-        total_linhas=d.get("total_linhas", 0), log=msgs.append)
-    return jsonify({"ok": bool(ch), "chave": ch, "log": msgs})
+        pesquisa=montar_pesquisa(d), log=msgs.append)
+    # 'chave' fica None — a interface mostrará o link para "Minhas
+    # solicitações", de onde o usuário baixa quando estiver pronto.
+    return jsonify({"ok": bool(uuid), "uuid": uuid,
+                    "chave": None, "log": msgs})
 
 
 @app.route("/api/solicitacoes")
@@ -382,6 +354,13 @@ def api_solicitacoes():
 @app.route("/api/baixar-solicitacao/<uuid>")
 @login_obrigatorio
 def api_baixar_solicitacao(uuid):
+    """
+    Em vez de baixar o arquivo pelo servidor (que estoura memória no
+    plano grátis e causa 502), apenas pega o link direto da Casa dos
+    Dados e REDIRECIONA o navegador para ele. O download vai do
+    navegador do usuário direto para a Casa dos Dados, sem passar
+    pelo Render.
+    """
     key = db.get_api_key()
     if not key:
         return "Sem chave configurada.", 400
@@ -394,14 +373,11 @@ def api_baixar_solicitacao(uuid):
         link = rc.json().get("link")
         if not link:
             return "Arquivo ainda em processamento. Aguarde.", 425
-        rd = requests.get(link, timeout=180)
-        rd.raise_for_status()
-        return send_file(
-            io.BytesIO(rd.content), mimetype="text/csv",
-            as_attachment=True,
-            download_name=f"cnpjs_{uuid[:8]}.csv")
+        # Redirect 302 — navegador baixa direto da Casa dos Dados.
+        # Não passa pela memória do Render, então nunca dá 502.
+        return redirect(link)
     except requests.exceptions.RequestException as e:
-        return f"Erro ao baixar: {e}", 502
+        return f"Erro ao consultar arquivo: {e}", 502
 
 
 @app.route("/api/download/<chave>")
@@ -838,14 +814,13 @@ headers:{'Content-Type':'application/json'},
 body:JSON.stringify(body)});
 const d=await r.json();
 log.textContent=(d.log||[]).map(x=>'▸ '+x).join('\\n');
-if(d.ok&&d.chave){dl.className='dl show';
-dl.innerHTML='<a class="dl-btn" href="/api/download/'+d.chave+
-'">⬇ Baixar arquivo</a>';}
-else{
+if(d.ok&&d.uuid){
+// Disparo OK — manda o usuário para Minhas solicitações
 dl.className='dl show';
 dl.innerHTML='<button onclick="aba(3)" style="margin:0;'+
-'background:var(--accent2);color:#fff">Ver em Minhas '+
-'solicitações →</button>';
+'background:var(--ok);color:#04130d">→ Ver em Minhas '+
+'solicitações</button>';
+}else{
 if(!d.ok&&d.msg)log.textContent+='\\n✗ '+d.msg;
 }
 }catch(e){log.textContent+='\\n✗ Erro: '+e;}

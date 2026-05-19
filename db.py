@@ -1,38 +1,38 @@
 """
-Camada de dados — SQLite
+Camada de dados — Postgres (produção) ou SQLite (local)
+========================================================
 
-Guarda:
-  - usuarios: login da equipe (senha com hash)
-  - config:   a chave de API da Casa dos Dados (1 valor central)
+Detecção automática:
+  - Se existir a variável de ambiente DATABASE_URL  -> usa Postgres
+    (é o que o Render fornece ao criar um banco Postgres grátis).
+    Os dados ficam PERMANENTES — não somem ao reiniciar/hibernar.
+  - Caso contrário -> usa SQLite local (arquivo captador.db),
+    bom para rodar e testar no seu PC.
 
-SQLite é um arquivo único, sem servidor, zero configuração.
-
-ATENÇÃO sobre persistência na hospedagem gratuita:
-  No plano grátis do Render o disco é efêmero — se o serviço
-  reiniciar, o arquivo .db pode ser recriado vazio. Para garantir
-  persistência, defina a variável de ambiente DATABASE_PATH apontando
-  para um disco persistente (Render: adicione um "Disk" e use o
-  caminho dele, ex: /var/data/captador.db) OU migre para Postgres.
-  O código abre o banco e RECRIA o admin padrão se ele sumir, então
-  o site nunca fica inacessível.
+A interface pública é idêntica nos dois modos — o app.py não muda.
+Segurança: senhas com hash PBKDF2 (sem dependência externa).
 """
 
 import os
-import sqlite3
 import hashlib
 import secrets
 from contextlib import contextmanager
 
-DB_PATH = os.environ.get("DATABASE_PATH", "captador.db")
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+USE_PG = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 
-# Admin inicial (pode/should ser trocado por variável de ambiente)
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_SENHA_INICIAL = os.environ.get("ADMIN_SENHA", "admin123")
 
+if USE_PG:
+    import psycopg
+    from psycopg.rows import dict_row
+    _DSN = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+else:
+    import sqlite3
+    DB_PATH = os.environ.get("DATABASE_PATH", "captador.db")
 
-# --------------------------------------------------------------------------- #
-# Hash de senha (PBKDF2 — seguro, sem dependência externa)
-# --------------------------------------------------------------------------- #
+
 def hash_senha(senha: str, salt: str = None) -> str:
     if salt is None:
         salt = secrets.token_hex(16)
@@ -43,63 +43,89 @@ def hash_senha(senha: str, salt: str = None) -> str:
 def verificar_senha(senha: str, armazenado: str) -> bool:
     try:
         salt, _ = armazenado.split("$", 1)
-    except ValueError:
+    except (ValueError, AttributeError):
         return False
     return secrets.compare_digest(hash_senha(senha, salt), armazenado)
 
 
-# --------------------------------------------------------------------------- #
-# Conexão
-# --------------------------------------------------------------------------- #
 @contextmanager
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
+    if USE_PG:
+        conn = psycopg.connect(_DSN, row_factory=dict_row)
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def _q(sql: str) -> str:
+    return sql.replace("?", "%s") if USE_PG else sql
+
+
+def _exec(c, sql, params=()):
+    cur = c.cursor()
+    cur.execute(_q(sql), params)
+    return cur
 
 
 def init_db():
     """Cria as tabelas e garante que sempre exista um admin."""
     with get_db() as c:
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS usuarios (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                username  TEXT UNIQUE NOT NULL,
-                senha     TEXT NOT NULL,
-                is_admin  INTEGER NOT NULL DEFAULT 0,
-                criado_em TEXT NOT NULL DEFAULT (datetime('now'))
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS config (
-                chave TEXT PRIMARY KEY,
-                valor TEXT
-            )
-        """)
-        # Garante o admin
-        existe = c.execute(
-            "SELECT 1 FROM usuarios WHERE username = ?", (ADMIN_USER,)
-        ).fetchone()
-        if not existe:
-            c.execute(
-                "INSERT INTO usuarios (username, senha, is_admin) "
-                "VALUES (?, ?, 1)",
-                (ADMIN_USER, hash_senha(ADMIN_SENHA_INICIAL)),
-            )
+        if USE_PG:
+            _exec(c, """
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id        SERIAL PRIMARY KEY,
+                    username  TEXT UNIQUE NOT NULL,
+                    senha     TEXT NOT NULL,
+                    is_admin  INTEGER NOT NULL DEFAULT 0,
+                    criado_em TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """)
+            _exec(c, """
+                CREATE TABLE IF NOT EXISTS config (
+                    chave TEXT PRIMARY KEY,
+                    valor TEXT
+                )
+            """)
+        else:
+            _exec(c, """
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username  TEXT UNIQUE NOT NULL,
+                    senha     TEXT NOT NULL,
+                    is_admin  INTEGER NOT NULL DEFAULT 0,
+                    criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            _exec(c, """
+                CREATE TABLE IF NOT EXISTS config (
+                    chave TEXT PRIMARY KEY,
+                    valor TEXT
+                )
+            """)
+        cur = _exec(c, "SELECT 1 FROM usuarios WHERE username = ?",
+                    (ADMIN_USER,))
+        if not cur.fetchone():
+            _exec(c,
+                  "INSERT INTO usuarios (username, senha, is_admin) "
+                  "VALUES (?, ?, 1)",
+                  (ADMIN_USER, hash_senha(ADMIN_SENHA_INICIAL)))
 
 
-# --------------------------------------------------------------------------- #
-# Usuários
-# --------------------------------------------------------------------------- #
 def autenticar(username: str, senha: str):
     with get_db() as c:
-        u = c.execute(
-            "SELECT * FROM usuarios WHERE username = ?", (username,)
-        ).fetchone()
+        cur = _exec(c, "SELECT * FROM usuarios WHERE username = ?",
+                    (username,))
+        u = cur.fetchone()
     if u and verificar_senha(senha, u["senha"]):
         return {"id": u["id"], "username": u["username"],
                 "is_admin": bool(u["is_admin"])}
@@ -108,11 +134,16 @@ def autenticar(username: str, senha: str):
 
 def listar_usuarios():
     with get_db() as c:
-        rows = c.execute(
-            "SELECT id, username, is_admin, criado_em "
-            "FROM usuarios ORDER BY id"
-        ).fetchall()
-    return [dict(r) for r in rows]
+        cur = _exec(c, "SELECT id, username, is_admin, criado_em "
+                       "FROM usuarios ORDER BY id")
+        rows = cur.fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        if d.get("criado_em") is not None:
+            d["criado_em"] = str(d["criado_em"])
+        out.append(d)
+    return out
 
 
 def criar_usuario(username: str, senha: str, is_admin: bool = False):
@@ -121,30 +152,30 @@ def criar_usuario(username: str, senha: str, is_admin: bool = False):
         return False, "Usuário e senha são obrigatórios."
     try:
         with get_db() as c:
-            c.execute(
-                "INSERT INTO usuarios (username, senha, is_admin) "
-                "VALUES (?, ?, ?)",
-                (username, hash_senha(senha), 1 if is_admin else 0),
-            )
+            _exec(c, "INSERT INTO usuarios (username, senha, is_admin) "
+                     "VALUES (?, ?, ?)",
+                  (username, hash_senha(senha), 1 if is_admin else 0))
         return True, "Usuário criado."
-    except sqlite3.IntegrityError:
-        return False, "Esse nome de usuário já existe."
+    except Exception as e:
+        msg = str(e).lower()
+        if "unique" in msg or "duplicate" in msg:
+            return False, "Esse nome de usuário já existe."
+        return False, f"Erro ao criar usuário: {e}"
 
 
 def remover_usuario(user_id: int):
     with get_db() as c:
-        # Não deixa remover o último admin
-        admins = c.execute(
-            "SELECT COUNT(*) n FROM usuarios WHERE is_admin = 1"
-        ).fetchone()["n"]
-        alvo = c.execute(
-            "SELECT is_admin FROM usuarios WHERE id = ?", (user_id,)
-        ).fetchone()
+        cur = _exec(c, "SELECT COUNT(*) AS n FROM usuarios "
+                       "WHERE is_admin = 1")
+        admins = cur.fetchone()["n"]
+        cur = _exec(c, "SELECT is_admin FROM usuarios WHERE id = ?",
+                    (user_id,))
+        alvo = cur.fetchone()
         if not alvo:
             return False, "Usuário não encontrado."
         if alvo["is_admin"] and admins <= 1:
             return False, "Não é possível remover o único administrador."
-        c.execute("DELETE FROM usuarios WHERE id = ?", (user_id,))
+        _exec(c, "DELETE FROM usuarios WHERE id = ?", (user_id,))
     return True, "Usuário removido."
 
 
@@ -152,29 +183,29 @@ def alterar_senha(user_id: int, nova_senha: str):
     if not nova_senha:
         return False, "Senha não pode ser vazia."
     with get_db() as c:
-        c.execute("UPDATE usuarios SET senha = ? WHERE id = ?",
-                  (hash_senha(nova_senha), user_id))
+        _exec(c, "UPDATE usuarios SET senha = ? WHERE id = ?",
+              (hash_senha(nova_senha), user_id))
     return True, "Senha alterada."
 
 
-# --------------------------------------------------------------------------- #
-# Configuração (chave de API)
-# --------------------------------------------------------------------------- #
 def get_config(chave: str, padrao=None):
     with get_db() as c:
-        r = c.execute(
-            "SELECT valor FROM config WHERE chave = ?", (chave,)
-        ).fetchone()
+        cur = _exec(c, "SELECT valor FROM config WHERE chave = ?",
+                    (chave,))
+        r = cur.fetchone()
     return r["valor"] if r else padrao
 
 
 def set_config(chave: str, valor: str):
     with get_db() as c:
-        c.execute(
-            "INSERT INTO config (chave, valor) VALUES (?, ?) "
-            "ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor",
-            (chave, valor),
-        )
+        if USE_PG:
+            _exec(c, "INSERT INTO config (chave, valor) VALUES (?, ?) "
+                     "ON CONFLICT (chave) DO UPDATE SET valor = "
+                     "EXCLUDED.valor", (chave, valor))
+        else:
+            _exec(c, "INSERT INTO config (chave, valor) VALUES (?, ?) "
+                     "ON CONFLICT(chave) DO UPDATE SET valor = "
+                     "excluded.valor", (chave, valor))
 
 
 def get_api_key():
