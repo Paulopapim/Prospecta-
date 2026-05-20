@@ -30,10 +30,17 @@ ENDPOINT_SALDO = "https://api.casadosdados.com.br/v5/saldo"
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 
-db.init_db()
+# =========================================================
+# INICIALIZA BANCO
+# =========================================================
+
+try:
+    db.init_db()
+    print("✅ Banco inicializado")
+except Exception as e:
+    print(f"❌ Erro ao iniciar banco: {e}")
 
 _ARQUIVOS = {}
-
 
 # =========================================================
 # HELPERS
@@ -197,7 +204,6 @@ def disparar_solicitacao(api_key, nome, pesquisa, log):
 
     return uuid
 
-
 # =========================================================
 # ROTAS
 # =========================================================
@@ -206,12 +212,11 @@ def disparar_solicitacao(api_key, nome, pesquisa, log):
 def index():
     return Response(
         """
-        <h1>Servidor funcionando</h1>
+        <h1>Servidor funcionando ✅</h1>
         <p>Captador CNPJ online.</p>
         """,
         mimetype="text/html"
     )
-
 
 # =========================================================
 # LOGIN
@@ -221,25 +226,32 @@ def index():
 def api_login():
     d = request.json or {}
 
-    u = db.autenticar(
-        d.get("username", "").strip(),
-        d.get("senha", "")
-    )
+    try:
+        u = db.autenticar(
+            d.get("username", "").strip(),
+            d.get("senha", "")
+        )
 
-    if not u:
+        if not u:
+            return jsonify({
+                "ok": False,
+                "msg": "Usuário ou senha incorretos."
+            })
+
+        session["uid"] = u["id"]
+        session["username"] = u["username"]
+        session["is_admin"] = u["is_admin"]
+
         return jsonify({
-            "ok": False,
-            "msg": "Usuário ou senha incorretos."
+            "ok": True,
+            "is_admin": u["is_admin"]
         })
 
-    session["uid"] = u["id"]
-    session["username"] = u["username"]
-    session["is_admin"] = u["is_admin"]
-
-    return jsonify({
-        "ok": True,
-        "is_admin": u["is_admin"]
-    })
+    except Exception as e:
+        return jsonify({
+            "ok": False,
+            "msg": f"Erro login: {e}"
+        }), 500
 
 
 @app.route("/api/logout", methods=["POST"])
@@ -256,11 +268,10 @@ def api_logout():
 def api_eu():
     return jsonify({
         "ok": True,
-        "username": session["username"],
-        "is_admin": session["is_admin"],
+        "username": session.get("username"),
+        "is_admin": session.get("is_admin"),
         "tem_chave": bool(db.get_api_key())
     })
-
 
 # =========================================================
 # ADMIN
@@ -292,45 +303,6 @@ def adm_criar():
     })
 
 
-@app.route("/api/admin/usuarios/<int:uid>", methods=["DELETE"])
-@admin_obrigatorio
-def adm_remover(uid):
-    ok, msg = db.remover_usuario(uid)
-
-    return jsonify({
-        "ok": ok,
-        "msg": msg
-    })
-
-
-@app.route("/api/admin/usuarios/<int:uid>/senha", methods=["POST"])
-@admin_obrigatorio
-def adm_senha(uid):
-    ok, msg = db.alterar_senha(
-        uid,
-        (request.json or {}).get("senha", "")
-    )
-
-    return jsonify({
-        "ok": ok,
-        "msg": msg
-    })
-
-
-@app.route("/api/admin/apikey", methods=["GET"])
-@admin_obrigatorio
-def adm_get_key():
-    k = db.get_api_key()
-
-    mascarada = ("•" * 8 + k[-4:]) if k else ""
-
-    return jsonify({
-        "ok": True,
-        "definida": bool(k),
-        "preview": mascarada
-    })
-
-
 @app.route("/api/admin/apikey", methods=["POST"])
 @admin_obrigatorio
 def adm_set_key():
@@ -348,7 +320,6 @@ def adm_set_key():
         "ok": True,
         "msg": "Chave atualizada."
     })
-
 
 # =========================================================
 # SALDO
@@ -372,110 +343,17 @@ def api_saldo():
             timeout=20
         )
 
-        if r.status_code == 200:
-            return jsonify({
-                "ok": True,
-                "dados": r.json()
-            })
-
-        if r.status_code == 401:
-            return jsonify({
-                "ok": False,
-                "msg": "Chave inválida."
-            })
-
-        if r.status_code == 403:
-            return jsonify({
-                "ok": False,
-                "msg": "Sem saldo."
-            })
-
         return jsonify({
-            "ok": False,
-            "msg": f"Erro HTTP {r.status_code}"
+            "ok": r.status_code == 200,
+            "status_code": r.status_code,
+            "dados": r.json() if r.text else {}
         })
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return jsonify({
             "ok": False,
             "msg": str(e)
         })
-
-
-# =========================================================
-# PRÉVIA
-# =========================================================
-
-@app.route("/api/previa", methods=["POST"])
-@login_obrigatorio
-def api_previa():
-    key = db.get_api_key()
-
-    if not key:
-        return jsonify({
-            "ok": False,
-            "msg": "Nenhuma chave configurada."
-        })
-
-    d = request.json or {}
-
-    if not d.get("cnae", "").strip():
-        return jsonify({
-            "ok": False,
-            "msg": "Informe um CNAE."
-        })
-
-    d["total_linhas"] = 5
-
-    pesquisa = montar_pesquisa(d)
-
-    try:
-        r = requests.post(
-            ENDPOINT_PESQUISA,
-            json=pesquisa,
-            headers=_h(key),
-            timeout=30
-        )
-
-        if r.status_code not in (200, 201):
-            return jsonify({
-                "ok": False,
-                "msg": f"HTTP {r.status_code}"
-            })
-
-        body = r.json()
-
-        registros = (
-            body.get("cnpjs")
-            or body.get("data")
-            or body.get("empresas")
-            or []
-        )
-
-        amostra = []
-
-        for e in registros[:5]:
-            amostra.append({
-                "cnpj": e.get("cnpj", ""),
-                "razao_social": e.get("razao_social", ""),
-                "municipio": e.get("municipio", ""),
-                "uf": e.get("uf", ""),
-                "telefone": e.get("telefone", ""),
-                "email": e.get("email", "")
-            })
-
-        return jsonify({
-            "ok": True,
-            "amostra": amostra,
-            "total": len(registros)
-        })
-
-    except requests.exceptions.RequestException as e:
-        return jsonify({
-            "ok": False,
-            "msg": str(e)
-        })
-
 
 # =========================================================
 # CAPTAR
@@ -515,9 +393,8 @@ def api_captar():
         "log": msgs
     })
 
-
 # =========================================================
-# LISTAR SOLICITAÇÕES
+# SOLICITAÇÕES
 # =========================================================
 
 @app.route("/api/solicitacoes")
@@ -538,43 +415,16 @@ def api_solicitacoes():
             timeout=25
         )
 
-        if r.status_code != 200:
-            return jsonify({
-                "ok": False,
-                "msg": f"HTTP {r.status_code}"
-            })
-
-        itens = r.json()
-
-        if not isinstance(itens, list):
-            itens = itens.get("data", [])
-
-        out = []
-
-        for it in itens[:40]:
-            pq = it.get("pesquisa", {}) or {}
-
-            out.append({
-                "uuid": it.get("arquivo_uuid", ""),
-                "nome": it.get("nome", ""),
-                "status": it.get("status", ""),
-                "quantidade": it.get("quantidade", 0),
-                "cnae": ",".join(
-                    pq.get("codigo_atividade_principal", [])
-                )
-            })
-
         return jsonify({
-            "ok": True,
-            "itens": out
+            "ok": r.status_code == 200,
+            "dados": r.json() if r.text else []
         })
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return jsonify({
             "ok": False,
             "msg": str(e)
         })
-
 
 # =========================================================
 # BAIXAR
@@ -600,11 +450,7 @@ def api_baixar_solicitacao(uuid):
                 f"Arquivo ainda não pronto. HTTP {rc.status_code}"
             ), 425
 
-        try:
-            dados = rc.json()
-
-        except Exception as e:
-            return f"Erro ao processar JSON: {e}", 502
+        dados = rc.json()
 
         link = dados.get("link")
 
@@ -613,9 +459,8 @@ def api_baixar_solicitacao(uuid):
 
         return redirect(link)
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return f"Erro: {e}", 502
-
 
 # =========================================================
 # DOWNLOAD LOCAL
@@ -636,6 +481,16 @@ def api_download(chave):
         download_name=a["filename"]
     )
 
+# =========================================================
+# HEALTHCHECK
+# =========================================================
+
+@app.route("/health")
+def health():
+    return jsonify({
+        "ok": True,
+        "status": "online"
+    })
 
 # =========================================================
 # MAIN
@@ -644,17 +499,7 @@ def api_download(chave):
 if __name__ == "__main__":
     porta = int(os.environ.get("PORT", 5000))
 
-    import webbrowser
-    import threading
-
-    if porta == 5000:
-        threading.Thread(
-            target=lambda: (
-                time.sleep(1.2),
-                webbrowser.open("http://localhost:5000")
-            ),
-            daemon=True
-        ).start()
+    print(f"🚀 Servidor iniciando na porta {porta}")
 
     app.run(
         host="0.0.0.0",
