@@ -229,8 +229,20 @@ def api_saldo():
         return jsonify({"ok": False,
                         "msg": "Nenhuma chave configurada. Avise o admin."})
     try:
-        r = requests.get(ENDPOINT_SALDO, headers=_h(key), timeout=20)
-        if r.status_code == 200:
+    rc = requests.get(...)
+    # ... código aqui ...
+    if rc.status_code != 200:
+        return ("O arquivo ainda não está pronto (status "
+        f"HTTP {rc.status_code}). Tente novamente em instantes."), 425
+    try:
+        link = rc.json().get("link")
+    except Exception as e:
+        return f"Erro ao processar resposta da Casa dos Dados: {e}", 502
+    if not link:
+        return "Arquivo ainda em processamento. Aguarde.", 425
+    return redirect(link)
+except requests.exceptions.RequestException as e:
+    return f"Erro ao consultar arquivo: {e}", 502
             return jsonify({"ok": True, "dados": r.json()})
         if r.status_code == 401:
             return jsonify({"ok": False, "msg": "Chave inválida (401)."})
