@@ -1,6 +1,6 @@
 """
 Captador de CNPJs — Casa dos Dados
-app.py — versão completa com todas as abas + painel de logs
+app.py — versão completa corrigida
 """
 
 import io
@@ -37,15 +37,14 @@ ENDPOINT_LISTAR    = "https://api.casadosdados.com.br/v4/cnpj/pesquisa/arquivo"
 ENDPOINT_PESQUISA  = "https://api.casadosdados.com.br/v5/cnpj/pesquisa"
 ENDPOINT_SALDO     = "https://api.casadosdados.com.br/v5/saldo"
 
-# log em memória (últimas 200 entradas)
 _LOGS = []
 
 def add_log(level, origem, msg, detalhe=""):
     _LOGS.append({
-        "ts": datetime.datetime.now().strftime("%d/%m %H:%M:%S"),
-        "level": level,          # INFO | WARN | ERROR
-        "origem": origem,
-        "msg": msg,
+        "ts":      datetime.datetime.now().strftime("%d/%m %H:%M:%S"),
+        "level":   level,
+        "origem":  origem,
+        "msg":     msg,
         "detalhe": str(detalhe)[:500],
     })
     if len(_LOGS) > 200:
@@ -114,7 +113,7 @@ def montar_pesquisa(d):
     return p
 
 # =========================================================
-# HTML
+# HTML LOGIN
 # =========================================================
 
 HTML_LOGIN = """<!DOCTYPE html>
@@ -129,18 +128,16 @@ HTML_LOGIN = """<!DOCTYPE html>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#080e1a;color:#e2e8f0;font-family:'DM Sans',sans-serif;
      display:flex;justify-content:center;align-items:center;min-height:100vh}
-.card{background:#0f1829;border:1px solid #1e2d45;border-radius:18px;
-      padding:44px 40px;width:380px}
+.card{background:#0f1829;border:1px solid #1e2d45;border-radius:18px;padding:44px 40px;width:380px}
 h2{font-size:22px;font-weight:600;margin-bottom:6px;color:#f1f5f9}
 .sub{font-size:13px;color:#64748b;margin-bottom:32px}
-label{font-size:12px;color:#64748b;display:block;margin-bottom:5px;font-weight:500;letter-spacing:.03em}
+label{font-size:12px;color:#64748b;display:block;margin-bottom:5px;font-weight:500}
 .field{margin-bottom:18px}
 input{width:100%;padding:11px 14px;background:#080e1a;border:1px solid #1e2d45;
       border-radius:10px;color:#f1f5f9;font-size:14px;outline:none;transition:.2s;font-family:inherit}
 input:focus{border-color:#4f6ef7;box-shadow:0 0 0 3px rgba(79,110,247,.15)}
 .btn{width:100%;padding:13px;background:#4f6ef7;border:none;border-radius:10px;
-     color:#fff;font-weight:600;font-size:15px;cursor:pointer;margin-top:8px;
-     font-family:inherit;transition:.2s;letter-spacing:.01em}
+     color:#fff;font-weight:600;font-size:15px;cursor:pointer;font-family:inherit;transition:.2s}
 .btn:hover{background:#3d5ce6}
 .erro{margin-top:14px;font-size:13px;color:#f87171;min-height:18px;text-align:center}
 </style>
@@ -174,6 +171,9 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter')entrar()});
 </body>
 </html>"""
 
+# =========================================================
+# HTML APP
+# =========================================================
 
 HTML_APP = """<!DOCTYPE html>
 <html lang="pt-br">
@@ -187,9 +187,8 @@ HTML_APP = """<!DOCTYPE html>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#080e1a;color:#e2e8f0;font-family:'DM Sans',sans-serif;display:flex;min-height:100vh}
 
-/* ---- sidebar ---- */
 .sidebar{width:230px;min-width:230px;background:#0f1829;border-right:1px solid #1e2d45;
-  display:flex;flex-direction:column;padding:0;position:fixed;top:0;left:0;height:100vh;overflow-y:auto}
+  display:flex;flex-direction:column;position:fixed;top:0;left:0;height:100vh;overflow-y:auto}
 .logo{padding:22px 20px 20px;border-bottom:1px solid #1e2d45}
 .logo h1{font-size:15px;font-weight:600;color:#f1f5f9}
 .logo .badge{font-size:11px;color:#4f6ef7;background:#0d1e3d;padding:2px 8px;
@@ -202,35 +201,35 @@ body{background:#080e1a;color:#e2e8f0;font-family:'DM Sans',sans-serif;display:f
   border-radius:8px;cursor:pointer;text-align:left;transition:.15s;font-weight:500}
 .nav-btn:hover{background:#1e2d45;color:#e2e8f0}
 .nav-btn.active{background:#1a2547;color:#7c9ef8}
-.nav-btn svg{width:16px;height:16px;flex-shrink:0;opacity:.8}
-.saldo-box{padding:14px 16px;margin:10px;background:#080e1a;border:1px solid #1e2d45;
-  border-radius:10px;font-size:12px}
-.saldo-box .s-label{color:#475569;margin-bottom:2px}
-.saldo-box .s-val{color:#7c9ef8;font-weight:600;font-size:14px}
-.user-box{padding:14px 16px;border-top:1px solid #1e2d45;display:flex;
-  align-items:center;gap:10px}
-.user-av{width:30px;height:30px;border-radius:50%;background:#1a2547;
-  display:flex;align-items:center;justify-content:center;font-size:12px;
-  font-weight:600;color:#7c9ef8;flex-shrink:0}
-.user-name{font-size:13px;font-weight:500;color:#cbd5e1}
-.btn-logout{margin-left:auto;background:none;border:none;cursor:pointer;
-  color:#475569;font-size:11px;padding:4px 8px;border-radius:6px;
-  font-family:inherit;transition:.15s}
+.nav-btn svg{width:16px;height:16px;flex-shrink:0}
+
+.saldo-box{padding:14px 16px;margin:10px;background:#080e1a;border:1px solid #1e2d45;border-radius:10px}
+.saldo-box .s-label{font-size:11px;color:#475569;margin-bottom:4px;font-weight:600;
+  text-transform:uppercase;letter-spacing:.05em}
+.saldo-box .s-val{color:#7c9ef8;font-weight:700;font-size:22px;line-height:1}
+.saldo-box .s-unit{font-size:11px;color:#475569;margin-top:2px}
+.btn-atualizar{width:100%;margin-top:10px;padding:8px;background:#1e2d45;border:none;
+  border-radius:8px;color:#94a3b8;font-size:12px;font-family:inherit;cursor:pointer;transition:.15s}
+.btn-atualizar:hover{background:#253550;color:#e2e8f0}
+
+.user-box{padding:14px 16px;border-top:1px solid #1e2d45;display:flex;align-items:center;gap:10px}
+.user-av{width:30px;height:30px;border-radius:50%;background:#1a2547;display:flex;
+  align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#7c9ef8;flex-shrink:0}
+.user-name{font-size:13px;font-weight:500;color:#cbd5e1;flex:1}
+.btn-logout{background:none;border:none;cursor:pointer;color:#475569;font-size:11px;
+  padding:4px 8px;border-radius:6px;font-family:inherit;transition:.15s}
 .btn-logout:hover{color:#f87171;background:#1e2d45}
 
-/* ---- main ---- */
 .main{margin-left:230px;flex:1;padding:28px 32px;min-height:100vh}
 .page{display:none}
 .page.active{display:block}
-.page-title{font-size:20px;font-weight:600;color:#f1f5f9;margin-bottom:6px}
+.page-title{font-size:20px;font-weight:600;color:#f1f5f9;margin-bottom:4px}
 .page-sub{font-size:13px;color:#475569;margin-bottom:24px}
 
-/* ---- cards ---- */
 .card{background:#0f1829;border:1px solid #1e2d45;border-radius:14px;padding:24px;margin-bottom:20px}
-.card-title{font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:16px;
-  text-transform:uppercase;letter-spacing:.05em}
+.card-title{font-size:11px;font-weight:600;color:#475569;margin-bottom:16px;
+  text-transform:uppercase;letter-spacing:.07em}
 
-/* ---- form ---- */
 label.lbl{font-size:12px;color:#475569;font-weight:500;display:block;margin-bottom:4px}
 input.inp,select.inp{width:100%;padding:10px 13px;background:#080e1a;border:1px solid #1e2d45;
   border-radius:9px;color:#e2e8f0;font-size:13.5px;font-family:inherit;outline:none;transition:.2s}
@@ -243,28 +242,24 @@ select.inp option{background:#0f1829}
 .checks label{display:flex;align-items:center;gap:7px;font-size:13px;color:#94a3b8;cursor:pointer}
 .checks input[type=checkbox]{width:15px;height:15px;accent-color:#4f6ef7}
 
-/* ---- buttons ---- */
-.btn{padding:10px 20px;border:none;border-radius:9px;font-family:inherit;
-  font-weight:600;font-size:13.5px;cursor:pointer;transition:.2s;display:inline-flex;align-items:center;gap:7px}
+.btn{padding:10px 20px;border:none;border-radius:9px;font-family:inherit;font-weight:600;
+  font-size:13.5px;cursor:pointer;transition:.2s;display:inline-flex;align-items:center;gap:7px}
 .btn-primary{background:#4f6ef7;color:#fff}
 .btn-primary:hover{background:#3d5ce6}
 .btn-secondary{background:#1e2d45;color:#94a3b8}
 .btn-secondary:hover{background:#253550;color:#e2e8f0}
 .btn-danger{background:#3d1515;color:#f87171;border:1px solid #5a1f1f}
 .btn-danger:hover{background:#5a1f1f}
-.btn-success{background:#0d2e1e;color:#4ade80;border:1px solid #14532d}
-.btn-success:hover{background:#14532d}
 .btn-sm{padding:6px 12px;font-size:12px}
 .btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
 
-/* ---- table ---- */
 .tbl-wrap{overflow-x:auto;margin-top:12px}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{background:#0d1626;color:#475569;padding:10px 12px;text-align:left;
-   font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em;
-   border-bottom:1px solid #1e2d45}
+th{background:#0d1626;color:#475569;padding:10px 12px;text-align:left;font-weight:600;
+   font-size:11px;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #1e2d45}
 td{padding:10px 12px;border-bottom:1px solid #0f1829;color:#cbd5e1;vertical-align:middle}
 tr:hover td{background:#0d1626}
+
 .badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600}
 .badge-green{background:#052e16;color:#4ade80;border:1px solid #14532d}
 .badge-amber{background:#2d1a02;color:#fbbf24;border:1px solid #78350f}
@@ -272,55 +267,52 @@ tr:hover td{background:#0d1626}
 .badge-blue{background:#0c1e40;color:#60a5fa;border:1px solid #1e3a5f}
 .badge-gray{background:#1a2130;color:#64748b;border:1px solid #334155}
 
-/* ---- log panel ---- */
-.log-panel{background:#050c18;border:1px solid #1e2d45;border-radius:10px;
-  font-family:'DM Mono',monospace,'Courier New';font-size:12px;
-  max-height:360px;overflow-y:auto;padding:0}
-.log-row{display:flex;gap:0;padding:7px 14px;border-bottom:1px solid #0a1120;align-items:flex-start}
-.log-row:last-child{border-bottom:none}
-.log-row:hover{background:#0a1525}
-.log-ts{color:#334155;min-width:100px;flex-shrink:0}
-.log-lv{min-width:52px;flex-shrink:0;font-weight:700}
-.log-lv.INFO{color:#38bdf8}
-.log-lv.WARN{color:#fbbf24}
-.log-lv.ERROR{color:#f87171}
-.log-orig{color:#4f6ef7;min-width:120px;flex-shrink:0}
-.log-msg{color:#94a3b8;flex:1}
-.log-det{color:#334155;font-size:11px;margin-top:2px;word-break:break-all}
-.log-empty{padding:20px;text-align:center;color:#334155}
-.log-filters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
-.log-filter-btn{padding:5px 13px;border-radius:20px;border:1px solid #1e2d45;
-  background:none;color:#475569;font-size:12px;cursor:pointer;font-family:inherit;transition:.15s}
-.log-filter-btn:hover{border-color:#4f6ef7;color:#7c9ef8}
-.log-filter-btn.on{background:#0d1e3d;border-color:#4f6ef7;color:#7c9ef8}
+.alert{padding:12px 16px;border-radius:9px;font-size:13px;margin-bottom:14px;
+  display:flex;align-items:flex-start;gap:10px;line-height:1.5}
+.alert-info{background:#0c1e40;border:1px solid #1e3a5f;color:#93c5fd}
+.alert-warn{background:#2d1a02;border:1px solid #78350f;color:#fcd34d}
+.alert-error{background:#1f0606;border:1px solid #7f1d1d;color:#fca5a5}
+.alert-ok{background:#052e16;border:1px solid #14532d;color:#86efac}
 
-/* ---- status card ---- */
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:20px}
 .stat-card{background:#0f1829;border:1px solid #1e2d45;border-radius:12px;padding:18px 20px}
-.stat-label{font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.stat-label{font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:6px}
 .stat-val{font-size:24px;font-weight:600;color:#f1f5f9}
 .stat-val.green{color:#4ade80}
 .stat-val.amber{color:#fbbf24}
 .stat-val.red{color:#f87171}
 .stat-val.blue{color:#60a5fa}
 
-/* ---- misc ---- */
-.divider{border:none;border-top:1px solid #1e2d45;margin:20px 0}
-.alert{padding:12px 16px;border-radius:9px;font-size:13px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px}
-.alert-info{background:#0c1e40;border:1px solid #1e3a5f;color:#93c5fd}
-.alert-warn{background:#2d1a02;border:1px solid #78350f;color:#fcd34d}
-.alert-error{background:#1f0606;border:1px solid #7f1d1d;color:#fca5a5}
-.alert-ok{background:#052e16;border:1px solid #14532d;color:#86efac}
+.log-panel{background:#050c18;border:1px solid #1e2d45;border-radius:10px;
+  font-family:'DM Mono',monospace,'Courier New';font-size:12px;
+  max-height:380px;overflow-y:auto}
+.log-row{display:flex;gap:0;padding:7px 14px;border-bottom:1px solid #0a1120;align-items:flex-start}
+.log-row:last-child{border-bottom:none}
+.log-row:hover{background:#0a1525}
+.log-ts{color:#334155;min-width:108px;flex-shrink:0}
+.log-lv{min-width:54px;flex-shrink:0;font-weight:700}
+.log-lv.INFO{color:#38bdf8}
+.log-lv.WARN{color:#fbbf24}
+.log-lv.ERROR{color:#f87171}
+.log-orig{color:#4f6ef7;min-width:120px;flex-shrink:0}
+.log-msg{color:#94a3b8;flex:1}
+.log-det{color:#334155;font-size:11px;margin-top:2px;word-break:break-all}
+.log-empty{padding:24px;text-align:center;color:#334155}
+.log-filters{display:flex;gap:8px;flex-wrap:wrap}
+.lf-btn{padding:5px 13px;border-radius:20px;border:1px solid #1e2d45;background:none;
+  color:#475569;font-size:12px;cursor:pointer;font-family:inherit;transition:.15s}
+.lf-btn:hover{border-color:#4f6ef7;color:#7c9ef8}
+.lf-btn.on{background:#0d1e3d;border-color:#4f6ef7;color:#7c9ef8}
+
 .dl-link{color:#60a5fa;text-decoration:none;font-weight:600;font-size:12px}
 .dl-link:hover{text-decoration:underline}
-.api-test-row{display:flex;gap:10px;align-items:flex-end;margin-top:4px}
-.api-test-row .inp{flex:1}
-#preview-table td,#preview-table th{font-size:12px;padding:7px 10px}
+.api-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.api-row .inp{flex:1;min-width:200px}
 </style>
 </head>
 <body>
 
-<!-- ============ SIDEBAR ============ -->
 <div class="sidebar">
   <div class="logo">
     <h1>Captador <span style="color:#4f6ef7">CNPJ</span></h1>
@@ -331,7 +323,7 @@ tr:hover td{background:#0d1626}
     <div class="nav-section">Principal</div>
     <button class="nav-btn active" onclick="goto('captacao')" id="nb-captacao">
       <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
+        <circle cx="11" cy="11" r="8"/><path stroke-linecap="round" d="m21 21-4.35-4.35"/>
       </svg> Captação
     </button>
     <button class="nav-btn" onclick="goto('solicitacoes')" id="nb-solicitacoes">
@@ -348,7 +340,8 @@ tr:hover td{background:#0d1626}
     </button>
     <button class="nav-btn" onclick="goto('configuracoes')" id="nb-configuracoes" style="display:none">
       <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M10.3 3.4A1 1 0 0 1 12 4v1a7 7 0 0 1 2.5 1.4l.9-.5a1 1 0 0 1 1.2.2l1.3 1.3a1 1 0 0 1 .2 1.2l-.5.9A7 7 0 0 1 19 12h1a1 1 0 0 1 1 1v1.8a1 1 0 0 1-.7 1l-.9.3A7 7 0 0 1 17.5 18l.5.9a1 1 0 0 1-.2 1.2l-1.3 1.3a1 1 0 0 1-1.2.2l-.9-.5A7 7 0 0 1 12 22v1a1 1 0 0 1-1.7.7"/>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
       </svg> Configurações
     </button>
     <button class="nav-btn" onclick="goto('logs')" id="nb-logs" style="display:none">
@@ -361,8 +354,8 @@ tr:hover td{background:#0d1626}
   <div class="saldo-box">
     <div class="s-label">Saldo API</div>
     <div class="s-val" id="saldo-val">—</div>
-    <button class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%;justify-content:center"
-      onclick="carregarSaldo()">Atualizar</button>
+    <div class="s-unit">créditos disponíveis</div>
+    <button class="btn-atualizar" onclick="carregarSaldo()">↻ Atualizar</button>
   </div>
 
   <div class="user-box">
@@ -372,62 +365,45 @@ tr:hover td{background:#0d1626}
   </div>
 </div>
 
-<!-- ============ MAIN ============ -->
 <div class="main">
 
-  <!-- ======= CAPTAÇÃO ======= -->
+  <!-- CAPTAÇÃO -->
   <div class="page active" id="page-captacao">
     <div class="page-title">Captação de CNPJs</div>
     <div class="page-sub">Configure os filtros e gere o arquivo CSV</div>
-
     <div class="card">
       <div class="card-title">Filtros de busca</div>
       <div class="grid2">
-        <div class="field">
-          <label class="lbl">CNAE(s) — separar por vírgula</label>
-          <input class="inp" id="cnae" value="6920601" placeholder="ex: 6920601,7020400">
-        </div>
-        <div class="field">
-          <label class="lbl">Situação Cadastral</label>
+        <div class="field"><label class="lbl">CNAE(s) — separar por vírgula</label>
+          <input class="inp" id="cnae" value="6920601"></div>
+        <div class="field"><label class="lbl">Situação Cadastral</label>
           <select class="inp" id="situacao">
             <option value="ATIVA">Ativa</option>
             <option value="BAIXADA">Baixada</option>
             <option value="INAPTA">Inapta</option>
             <option value="SUSPENSA">Suspensa</option>
-          </select>
-        </div>
-        <div class="field">
-          <label class="lbl">UF(s) — ex: SP,RJ</label>
-          <input class="inp" id="ufs" placeholder="Todas">
-        </div>
-        <div class="field">
-          <label class="lbl">Município(s)</label>
-          <input class="inp" id="municipios" placeholder="Todos">
-        </div>
-        <div class="field">
-          <label class="lbl">Últimos N dias (abertura)</label>
-          <input class="inp" id="ultimos_dias" type="number" placeholder="0 = ignorar">
-        </div>
-        <div class="field">
-          <label class="lbl">Total de linhas (0 = máximo)</label>
-          <input class="inp" id="total_linhas" type="number" placeholder="0">
-        </div>
+          </select></div>
+        <div class="field"><label class="lbl">UF(s) — ex: SP,RJ</label>
+          <input class="inp" id="ufs" placeholder="Todas"></div>
+        <div class="field"><label class="lbl">Município(s)</label>
+          <input class="inp" id="municipios" placeholder="Todos"></div>
+        <div class="field"><label class="lbl">Últimos N dias (abertura)</label>
+          <input class="inp" id="ultimos_dias" type="number" placeholder="0 = ignorar"></div>
+        <div class="field"><label class="lbl">Total de linhas (0 = máximo)</label>
+          <input class="inp" id="total_linhas" type="number" placeholder="0"></div>
       </div>
-      <div class="field">
-        <label class="lbl">Nome do arquivo</label>
-        <input class="inp" id="nome" value="captacao" style="max-width:300px">
-      </div>
+      <div class="field"><label class="lbl">Nome do arquivo</label>
+        <input class="inp" id="nome" value="captacao" style="max-width:300px"></div>
       <div class="checks">
         <label><input type="checkbox" id="somente_mei"> Somente MEI</label>
         <label><input type="checkbox" id="com_telefone"> Com telefone</label>
         <label><input type="checkbox" id="com_email"> Com e-mail</label>
       </div>
-
       <div class="btn-row">
         <button class="btn btn-secondary" onclick="previa()">
           <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <circle cx="11" cy="11" r="8"/><path stroke-linecap="round" d="m21 21-4.35-4.35"/>
-          </svg> Prévia (10 registros)
+          </svg> Prévia
         </button>
         <button class="btn btn-primary" onclick="captar()">
           <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -436,13 +412,11 @@ tr:hover td{background:#0d1626}
         </button>
       </div>
     </div>
-
     <div id="alert-captacao"></div>
-
     <div id="preview-card" class="card" style="display:none">
       <div class="card-title">Prévia — primeiros registros</div>
       <div class="tbl-wrap">
-        <table id="preview-table">
+        <table>
           <thead><tr><th>CNPJ</th><th>Razão Social</th><th>Município</th><th>UF</th><th>Telefone</th><th>E-mail</th></tr></thead>
           <tbody id="preview-body"></tbody>
         </table>
@@ -450,11 +424,10 @@ tr:hover td{background:#0d1626}
     </div>
   </div>
 
-  <!-- ======= SOLICITAÇÕES ======= -->
+  <!-- SOLICITAÇÕES -->
   <div class="page" id="page-solicitacoes">
     <div class="page-title">Minhas Solicitações</div>
     <div class="page-sub">Arquivos gerados — aguarde o processamento e baixe o CSV</div>
-
     <div style="display:flex;gap:10px;margin-bottom:20px">
       <button class="btn btn-primary" onclick="listarSolicitacoes()">
         <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -462,46 +435,34 @@ tr:hover td{background:#0d1626}
         </svg> Atualizar lista
       </button>
     </div>
-
     <div id="alert-sol"></div>
-
     <div class="card">
-      <div id="sol-body">
-        <div style="text-align:center;color:#334155;padding:30px 0">
-          Clique em "Atualizar lista" para carregar as solicitações.
-        </div>
+      <div id="sol-body" style="text-align:center;color:#334155;padding:30px 0">
+        Clique em "Atualizar lista" para carregar as solicitações.
       </div>
     </div>
   </div>
 
-  <!-- ======= USUÁRIOS ======= -->
+  <!-- USUÁRIOS -->
   <div class="page" id="page-usuarios">
     <div class="page-title">Gerenciar Usuários</div>
     <div class="page-sub">Adicione ou remova acessos ao sistema</div>
-
     <div class="card">
       <div class="card-title">Novo usuário</div>
       <div class="grid3">
-        <div class="field">
-          <label class="lbl">Usuário</label>
-          <input class="inp" id="nu-user" placeholder="nome_usuario">
-        </div>
-        <div class="field">
-          <label class="lbl">Senha</label>
-          <input class="inp" id="nu-senha" type="password" placeholder="••••••••">
-        </div>
-        <div class="field">
-          <label class="lbl">Perfil</label>
+        <div class="field"><label class="lbl">Usuário</label>
+          <input class="inp" id="nu-user" placeholder="nome_usuario"></div>
+        <div class="field"><label class="lbl">Senha</label>
+          <input class="inp" id="nu-senha" type="password" placeholder="••••••••"></div>
+        <div class="field"><label class="lbl">Perfil</label>
           <select class="inp" id="nu-admin">
             <option value="0">Operador</option>
             <option value="1">Admin</option>
-          </select>
-        </div>
+          </select></div>
       </div>
       <div id="alert-nu"></div>
       <button class="btn btn-primary" onclick="criarUsuario()">Criar usuário</button>
     </div>
-
     <div class="card">
       <div class="card-title">Usuários cadastrados</div>
       <div id="alert-user"></div>
@@ -514,59 +475,50 @@ tr:hover td{background:#0d1626}
     </div>
   </div>
 
-  <!-- ======= CONFIGURAÇÕES ======= -->
+  <!-- CONFIGURAÇÕES -->
   <div class="page" id="page-configuracoes">
     <div class="page-title">Configurações</div>
-    <div class="page-sub">Gerencie a API KEY e teste a conexão com Casa dos Dados</div>
-
-    <div class="stat-grid" id="cfg-stats">
+    <div class="page-sub">API KEY e diagnóstico de conexão</div>
+    <div class="stat-grid">
       <div class="stat-card"><div class="stat-label">Status API</div><div class="stat-val" id="cfg-status-api">—</div></div>
       <div class="stat-card"><div class="stat-label">Saldo</div><div class="stat-val blue" id="cfg-saldo">—</div></div>
       <div class="stat-card"><div class="stat-label">API KEY</div><div class="stat-val" id="cfg-key-status">—</div></div>
     </div>
-
     <div class="card">
       <div class="card-title">API KEY — Casa dos Dados</div>
       <div id="alert-cfg"></div>
-      <div class="api-test-row">
-        <input class="inp" id="cfg-key-input" type="password" placeholder="Cole sua API KEY aqui" style="flex:1">
+      <div class="api-row">
+        <input class="inp" id="cfg-key-input" type="password" placeholder="Cole sua API KEY aqui">
         <button class="btn btn-primary" onclick="salvarKey()">Salvar</button>
         <button class="btn btn-secondary" onclick="verKey()">Ver KEY</button>
         <button class="btn btn-secondary" onclick="testarConexao()">Testar conexão</button>
       </div>
       <div id="cfg-key-msg" style="margin-top:10px;font-size:13px;color:#64748b"></div>
     </div>
-
     <div class="card">
       <div class="card-title">Diagnóstico rápido</div>
-      <button class="btn btn-secondary" onclick="diagnostico()" style="margin-bottom:16px">
-        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"/>
-        </svg> Rodar diagnóstico
-      </button>
+      <button class="btn btn-secondary" onclick="diagnostico()" style="margin-bottom:16px">Rodar diagnóstico</button>
       <div id="diag-body"></div>
     </div>
   </div>
 
-  <!-- ======= LOGS ======= -->
+  <!-- LOGS -->
   <div class="page" id="page-logs">
     <div class="page-title">Logs & Painel de Erros</div>
     <div class="page-sub">Rastreie todas as operações e identifique problemas facilmente</div>
-
     <div class="stat-grid">
       <div class="stat-card"><div class="stat-label">Total de logs</div><div class="stat-val" id="log-count">0</div></div>
       <div class="stat-card"><div class="stat-label">Erros</div><div class="stat-val red" id="log-errors">0</div></div>
       <div class="stat-card"><div class="stat-label">Avisos</div><div class="stat-val amber" id="log-warns">0</div></div>
       <div class="stat-card"><div class="stat-label">Info</div><div class="stat-val blue" id="log-infos">0</div></div>
     </div>
-
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
         <div class="log-filters">
-          <button class="log-filter-btn on" id="f-ALL" onclick="setFiltro('ALL')">Todos</button>
-          <button class="log-filter-btn" id="f-ERROR" onclick="setFiltro('ERROR')">Erros</button>
-          <button class="log-filter-btn" id="f-WARN" onclick="setFiltro('WARN')">Avisos</button>
-          <button class="log-filter-btn" id="f-INFO" onclick="setFiltro('INFO')">Info</button>
+          <button class="lf-btn on" id="f-ALL" onclick="setFiltro('ALL')">Todos</button>
+          <button class="lf-btn" id="f-ERROR" onclick="setFiltro('ERROR')">Erros</button>
+          <button class="lf-btn" id="f-WARN" onclick="setFiltro('WARN')">Avisos</button>
+          <button class="lf-btn" id="f-INFO" onclick="setFiltro('INFO')">Info</button>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="carregarLogs()">Atualizar</button>
@@ -574,25 +526,20 @@ tr:hover td{background:#0d1626}
         </div>
       </div>
       <div class="log-panel" id="log-panel">
-        <div class="log-empty">Nenhum log ainda. Realize uma operação.</div>
+        <div class="log-empty">Nenhum log ainda.</div>
       </div>
     </div>
   </div>
 
-</div><!-- /main -->
+</div>
 
 <script>
-// =========================================================
-// STATE
-// =========================================================
 let isAdmin = false;
 let logFiltro = 'ALL';
 let allLogs = [];
 
-// =========================================================
-// INIT
-// =========================================================
-(async ()=>{
+// ---- INIT ----
+(async()=>{
   const r = await fetch('/api/eu');
   if(!r.ok){ location.reload(); return; }
   const d = await r.json();
@@ -610,9 +557,7 @@ let allLogs = [];
   carregarSaldo();
 })();
 
-// =========================================================
-// NAV
-// =========================================================
+// ---- NAV ----
 function goto(page){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
@@ -622,38 +567,46 @@ function goto(page){
   if(page==='logs') carregarLogs();
 }
 
-// =========================================================
-// ALERTS
-// =========================================================
-function showAlert(id, type, msg){
-  const t = {ok:'alert-ok',info:'alert-info',warn:'alert-warn',error:'alert-error'};
-  document.getElementById(id).innerHTML =
-    `<div class="alert ${t[type]||'alert-info'}">${msg}</div>`;
+// ---- ALERTS ----
+function showAlert(id,type,msg){
+  const m={ok:'alert-ok',info:'alert-info',warn:'alert-warn',error:'alert-error'};
+  document.getElementById(id).innerHTML=`<div class="alert ${m[type]||'alert-info'}">${msg}</div>`;
 }
 function clearAlert(id){ document.getElementById(id).innerHTML=''; }
 
-// =========================================================
-// LOGOUT / SALDO
-// =========================================================
+// ---- LOGOUT ----
 async function logout(){
   await fetch('/api/logout',{method:'POST'});
   location.reload();
 }
 
+// ---- SALDO — extrai só o número total ----
 async function carregarSaldo(){
-  const r = await fetch('/api/saldo',{method:'POST'});
-  const d = await r.json();
   const el = document.getElementById('saldo-val');
-  if(d.ok && d.dados){
-    const s = d.dados;
-    const val = s.saldo ?? s.creditos ?? s.total ?? JSON.stringify(s);
-    el.textContent = typeof val === 'number' ? val.toLocaleString('pt-BR') : val;
-  } else { el.textContent = 'Indisponível'; }
+  el.textContent = '...';
+  try {
+    const r = await fetch('/api/saldo',{method:'POST'});
+    const d = await r.json();
+    if(d.ok && d.dados){
+      const s = d.dados;
+      // tenta extrair saldo_total, depois saldo, depois creditos
+      const val = s.saldo_total ?? s.saldo ?? s.creditos ?? s.total ?? null;
+      if(val !== null){
+        el.textContent = Number(val).toLocaleString('pt-BR');
+      } else {
+        // fallback: mostra o primeiro número encontrado no objeto
+        const nums = JSON.stringify(s).match(/\d+/);
+        el.textContent = nums ? nums[0] : '—';
+      }
+    } else {
+      el.textContent = '—';
+    }
+  } catch(e){
+    el.textContent = '—';
+  }
 }
 
-// =========================================================
-// FILTROS CAPTAÇÃO
-// =========================================================
+// ---- FILTROS ----
 function filtros(){
   return {
     cnae:         document.getElementById('cnae').value,
@@ -669,22 +622,30 @@ function filtros(){
   };
 }
 
-// =========================================================
-// PRÉVIA
-// =========================================================
+// ---- PRÉVIA ----
 async function previa(){
   clearAlert('alert-captacao');
   document.getElementById('preview-card').style.display='none';
   showAlert('alert-captacao','info','Buscando prévia...');
-  const r = await fetch('/api/previa',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify(filtros())});
-  const d = await r.json();
-  if(!d.ok){ showAlert('alert-captacao','error','Erro: '+(d.msg||'Desconhecido')); return; }
-  const lista = d.dados?.cnpjs || d.dados?.data || [];
-  if(!lista.length){ showAlert('alert-captacao','warn','Nenhum registro encontrado para esses filtros.'); return; }
-  const tbody = document.getElementById('preview-body');
-  tbody.innerHTML = lista.slice(0,10).map(e=>`
-    <tr>
+  try {
+    const r = await fetch('/api/previa',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(filtros())});
+    const d = await r.json();
+    if(!d.ok){ showAlert('alert-captacao','error','Erro: '+(d.msg||'Desconhecido')); return; }
+
+    // a API retorna dados em vários formatos possíveis
+    const raw = d.dados;
+    let lista = [];
+    if(Array.isArray(raw)) lista = raw;
+    else if(raw && Array.isArray(raw.cnpjs)) lista = raw.cnpjs;
+    else if(raw && Array.isArray(raw.data)) lista = raw.data;
+
+    if(!lista.length){
+      showAlert('alert-captacao','warn','Nenhum registro encontrado para esses filtros.');
+      return;
+    }
+    const tbody = document.getElementById('preview-body');
+    tbody.innerHTML = lista.slice(0,10).map(e=>`<tr>
       <td>${e.cnpj||'—'}</td>
       <td>${e.razao_social||'—'}</td>
       <td>${e.municipio||'—'}</td>
@@ -692,263 +653,260 @@ async function previa(){
       <td>${e.telefone_1||e.ddd_telefone_1||'—'}</td>
       <td>${e.email||'—'}</td>
     </tr>`).join('');
-  document.getElementById('preview-card').style.display='block';
-  clearAlert('alert-captacao');
-  showAlert('alert-captacao','ok',`${lista.length} registro(s) retornados na prévia.`);
-}
-
-// =========================================================
-// CAPTAR
-// =========================================================
-async function captar(){
-  clearAlert('alert-captacao');
-  showAlert('alert-captacao','info','Enviando solicitação para Casa dos Dados...');
-  const r = await fetch('/api/captar',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify(filtros())});
-  const d = await r.json();
-  if(d.ok){
-    showAlert('alert-captacao','ok',
-      `Arquivo solicitado com sucesso!<br><small style="opacity:.7">UUID: ${d.uuid}</small><br>
-       <small>Aguarde alguns minutos e consulte a aba <b>Solicitações</b>.</small>`);
-  } else {
-    showAlert('alert-captacao','error','Falha: '+(d.msg||'Erro desconhecido'));
+    document.getElementById('preview-card').style.display='block';
+    showAlert('alert-captacao','ok',`${lista.length} registro(s) na prévia.`);
+  } catch(e){
+    showAlert('alert-captacao','error','Exceção: '+String(e));
   }
 }
 
-// =========================================================
-// SOLICITAÇÕES
-// =========================================================
+// ---- CAPTAR ----
+async function captar(){
+  clearAlert('alert-captacao');
+  showAlert('alert-captacao','info','Enviando solicitação...');
+  try {
+    const r = await fetch('/api/captar',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(filtros())});
+    const d = await r.json();
+    if(d.ok){
+      showAlert('alert-captacao','ok',
+        `Arquivo solicitado! UUID: <b>${d.uuid}</b><br>
+         <small>Aguarde alguns minutos e consulte a aba Solicitações.</small>`);
+    } else {
+      showAlert('alert-captacao','error','Falha: '+(d.msg||'Erro desconhecido'));
+    }
+  } catch(e){
+    showAlert('alert-captacao','error','Exceção: '+String(e));
+  }
+}
+
+// ---- SOLICITAÇÕES ----
 async function listarSolicitacoes(){
   clearAlert('alert-sol');
   const container = document.getElementById('sol-body');
-  container.innerHTML = '<div style="text-align:center;color:#334155;padding:30px 0">Carregando...</div>';
-  const r = await fetch('/api/solicitacoes');
-  const d = await r.json();
-  if(!d.ok){
-    showAlert('alert-sol','error','Erro ao listar: '+(d.msg||''));
+  container.innerHTML='<div style="text-align:center;color:#334155;padding:30px 0">Carregando...</div>';
+  try {
+    const r = await fetch('/api/solicitacoes');
+    const d = await r.json();
+    if(!d.ok){
+      showAlert('alert-sol','error','Erro: '+(d.msg||''));
+      container.innerHTML='';
+      return;
+    }
+
+    // normaliza a lista — API pode retornar em vários formatos
+    const raw = d.dados;
+    let lista = [];
+    if(Array.isArray(raw)) lista = raw;
+    else if(raw && Array.isArray(raw.arquivos)) lista = raw.arquivos;
+    else if(raw && Array.isArray(raw.data)) lista = raw.data;
+    else if(raw && Array.isArray(raw.solicitacoes)) lista = raw.solicitacoes;
+
+    if(!lista.length){
+      container.innerHTML='<div style="text-align:center;color:#334155;padding:30px 0">Nenhuma solicitação encontrada.</div>';
+      return;
+    }
+
+    // decide badge e se pode baixar
+    function statusInfo(st){
+      const s = (st||'').toLowerCase();
+      // status "processado" da Casa dos Dados = arquivo pronto para download
+      if(['processado','concluido','concluído','done','completed','pronto','finalizado'].some(x=>s.includes(x)))
+        return {cls:'badge-green', pronto:true};
+      if(['erro','error','fail','falha'].some(x=>s.includes(x)))
+        return {cls:'badge-red', pronto:false};
+      if(['processando','process','fila','queue','aguard','pend'].some(x=>s.includes(x)))
+        return {cls:'badge-amber', pronto:false};
+      // se não reconheceu mas tem algum status, trata como processando
+      return {cls:'badge-amber', pronto:false};
+    }
+
+    const rows = lista.map(a=>{
+      const uuid  = a.uuid || a.id || a.arquivo_uuid || '';
+      const nome  = a.nome || a.name || (uuid?uuid.slice(0,12):'—');
+      const st    = a.status || a.situacao || '';
+      const info  = statusInfo(st);
+      const linhas= a.total_linhas ?? a.linhas ?? a.quantidade ?? '—';
+      const criado= a.criado_em || a.created_at || a.data_criacao || '—';
+      const acao  = info.pronto
+        ? `<a class="dl-link" href="/api/baixar-solicitacao/${uuid}" target="_blank">⬇ Baixar CSV</a>`
+        : `<span style="color:#475569;font-size:12px">Aguardando...</span>`;
+      return `<tr>
+        <td>${nome}</td>
+        <td><span class="badge ${info.cls}">${st||'?'}</span></td>
+        <td style="font-size:12px;color:#475569">${criado}</td>
+        <td style="font-size:12px">${linhas}</td>
+        <td>${acao}</td>
+      </tr>`;
+    }).join('');
+
+    container.innerHTML=`<div class="tbl-wrap"><table>
+      <thead><tr><th>Nome</th><th>Status</th><th>Criado em</th><th>Linhas</th><th>Download</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  } catch(e){
+    showAlert('alert-sol','error','Exceção: '+String(e));
     container.innerHTML='';
-    return;
   }
-  const lista = d.dados?.arquivos || d.dados?.data || d.dados || [];
-  if(!Array.isArray(lista)||!lista.length){
-    container.innerHTML='<div style="text-align:center;color:#334155;padding:30px 0">Nenhuma solicitação encontrada.</div>';
-    return;
-  }
-  const statusBadge = s => {
-    const sl = (s||'').toLowerCase();
-    if(sl.includes('conclu')||sl.includes('pronto')||sl==='done'||sl==='completed')
-      return `<span class="badge badge-green">${s}</span>`;
-    if(sl.includes('erro')||sl.includes('fail'))
-      return `<span class="badge badge-red">${s}</span>`;
-    if(sl.includes('proc')||sl.includes('pend')||sl.includes('queue'))
-      return `<span class="badge badge-amber">${s}</span>`;
-    return `<span class="badge badge-gray">${s||'?'}</span>`;
-  };
-  const rows = lista.map(a=>{
-    const uuid = a.uuid||a.id||'';
-    const nome = a.nome||a.name||uuid.slice(0,8);
-    const st = a.status||'';
-    const sl = st.toLowerCase();
-    const pronto = sl.includes('conclu')||sl.includes('pronto')||sl==='done'||sl==='completed';
-    const acao = pronto
-      ? `<a class="dl-link" href="/api/baixar-solicitacao/${uuid}" target="_blank">&#11015; Baixar CSV</a>`
-      : `<span style="color:#334155;font-size:12px">Aguardando...</span>`;
-    return `<tr>
-      <td>${nome}</td>
-      <td>${statusBadge(st)}</td>
-      <td style="font-size:12px;color:#475569">${a.criado_em||a.created_at||'—'}</td>
-      <td style="font-size:12px">${a.total_linhas??a.linhas??'—'}</td>
-      <td>${acao}</td>
-    </tr>`;
-  }).join('');
-  container.innerHTML = `
-    <div class="tbl-wrap">
-      <table>
-        <thead><tr><th>Nome</th><th>Status</th><th>Criado em</th><th>Linhas</th><th>Download</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
 }
 
-// =========================================================
-// USUÁRIOS
-// =========================================================
+// ---- USUÁRIOS ----
 async function carregarUsuarios(){
   const r = await fetch('/api/admin/usuarios');
   const d = await r.json();
   if(!d.ok) return;
-  const tbody = document.getElementById('user-body');
-  tbody.innerHTML = d.usuarios.map(u=>`
-    <tr>
-      <td>${u.id}</td>
-      <td><b>${u.username}</b></td>
-      <td>${u.is_admin?'<span class="badge badge-blue">Admin</span>':'<span class="badge badge-gray">Operador</span>'}</td>
-      <td><input class="inp" id="pw-${u.id}" type="password" placeholder="Nova senha" style="max-width:160px">
-          <button class="btn btn-secondary btn-sm" style="margin-left:6px" onclick="alterarSenha(${u.id})">Salvar</button></td>
-      <td>${u.username==='admin'?'<span style="color:#334155;font-size:12px">protegido</span>':
-        `<button class="btn btn-danger btn-sm" onclick="removerUsuario(${u.id},'${u.username}')">Remover</button>`}</td>
-    </tr>`).join('');
+  document.getElementById('user-body').innerHTML = d.usuarios.map(u=>`<tr>
+    <td>${u.id}</td>
+    <td><b>${u.username}</b></td>
+    <td>${u.is_admin?'<span class="badge badge-blue">Admin</span>':'<span class="badge badge-gray">Operador</span>'}</td>
+    <td><input class="inp" id="pw-${u.id}" type="password" placeholder="Nova senha" style="max-width:150px">
+        <button class="btn btn-secondary btn-sm" style="margin-left:6px" onclick="alterarSenha(${u.id})">Salvar</button></td>
+    <td>${u.username==='admin'
+      ? '<span style="color:#334155;font-size:12px">protegido</span>'
+      : `<button class="btn btn-danger btn-sm" onclick="removerUsuario(${u.id},'${u.username}')">Remover</button>`
+    }</td>
+  </tr>`).join('');
 }
 
 async function criarUsuario(){
   clearAlert('alert-nu');
-  const username = document.getElementById('nu-user').value.trim();
-  const senha    = document.getElementById('nu-senha').value;
-  const is_admin = document.getElementById('nu-admin').value === '1';
+  const username=document.getElementById('nu-user').value.trim();
+  const senha=document.getElementById('nu-senha').value;
+  const is_admin=document.getElementById('nu-admin').value==='1';
   if(!username||!senha){ showAlert('alert-nu','warn','Preencha usuário e senha.'); return; }
-  const r = await fetch('/api/admin/usuarios',{method:'POST',
+  const r=await fetch('/api/admin/usuarios',{method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({username,senha,is_admin})});
-  const d = await r.json();
-  if(d.ok){
-    showAlert('alert-nu','ok','Usuário criado!');
+  const d=await r.json();
+  if(d.ok){ showAlert('alert-nu','ok','Usuário criado!');
     document.getElementById('nu-user').value='';
     document.getElementById('nu-senha').value='';
     carregarUsuarios();
   } else { showAlert('alert-nu','error',d.msg); }
 }
 
-async function removerUsuario(id, nome){
-  if(!confirm(`Remover usuário "${nome}"?`)) return;
-  const r = await fetch(`/api/admin/usuarios/${id}`,{method:'DELETE'});
-  const d = await r.json();
+async function removerUsuario(id,nome){
+  if(!confirm(`Remover "${nome}"?`)) return;
+  const r=await fetch(`/api/admin/usuarios/${id}`,{method:'DELETE'});
+  const d=await r.json();
   if(d.ok) carregarUsuarios();
   else showAlert('alert-user','error',d.msg);
 }
 
 async function alterarSenha(id){
-  const senha = document.getElementById('pw-'+id).value;
+  const senha=document.getElementById('pw-'+id).value;
   if(!senha){ showAlert('alert-user','warn','Digite a nova senha.'); return; }
-  const r = await fetch(`/api/admin/usuarios/${id}/senha`,{method:'PUT',
+  const r=await fetch(`/api/admin/usuarios/${id}/senha`,{method:'PUT',
     headers:{'Content-Type':'application/json'},body:JSON.stringify({senha})});
-  const d = await r.json();
+  const d=await r.json();
   if(d.ok) showAlert('alert-user','ok','Senha alterada!');
   else showAlert('alert-user','error',d.msg);
 }
 
-// =========================================================
-// CONFIGURAÇÕES
-// =========================================================
+// ---- CONFIGURAÇÕES ----
 async function carregarCfgStats(){
-  const r = await fetch('/api/saldo',{method:'POST'});
-  const d = await r.json();
-  const stEl = document.getElementById('cfg-status-api');
-  const sdEl = document.getElementById('cfg-saldo');
-  if(d.ok){
-    stEl.textContent='Online'; stEl.className='stat-val green';
-    const s=d.dados; sdEl.textContent = s.saldo??s.creditos??'OK';
-  } else {
-    stEl.textContent='Offline'; stEl.className='stat-val red';
-    sdEl.textContent='—';
-  }
-  const kr = await fetch('/api/admin/apikey');
-  const kd = await kr.json();
-  const kEl = document.getElementById('cfg-key-status');
-  if(kd.api_key){ kEl.textContent='Configurada'; kEl.className='stat-val green'; }
-  else { kEl.textContent='Ausente'; kEl.className='stat-val red'; }
+  try {
+    const r=await fetch('/api/saldo',{method:'POST'});
+    const d=await r.json();
+    const stEl=document.getElementById('cfg-status-api');
+    const sdEl=document.getElementById('cfg-saldo');
+    if(d.ok){
+      stEl.textContent='Online'; stEl.className='stat-val green';
+      const s=d.dados;
+      const val = s.saldo_total ?? s.saldo ?? s.creditos ?? '—';
+      sdEl.textContent = val !== '—' ? Number(val).toLocaleString('pt-BR') : '—';
+    } else {
+      stEl.textContent='Offline'; stEl.className='stat-val red';
+      sdEl.textContent='—';
+    }
+  } catch(e){ }
+  try {
+    const kr=await fetch('/api/admin/apikey');
+    const kd=await kr.json();
+    const kEl=document.getElementById('cfg-key-status');
+    if(kd.api_key){ kEl.textContent='OK'; kEl.className='stat-val green'; }
+    else { kEl.textContent='Ausente'; kEl.className='stat-val red'; }
+  } catch(e){ }
 }
 
 async function salvarKey(){
-  const v = document.getElementById('cfg-key-input').value.trim();
+  const v=document.getElementById('cfg-key-input').value.trim();
   if(!v){ showAlert('alert-cfg','warn','Informe a chave.'); return; }
-  const r = await fetch('/api/admin/apikey',{method:'POST',
+  const r=await fetch('/api/admin/apikey',{method:'POST',
     headers:{'Content-Type':'application/json'},body:JSON.stringify({api_key:v})});
-  const d = await r.json();
-  if(d.ok){ showAlert('alert-cfg','ok','API KEY salva com sucesso!'); carregarCfgStats(); }
+  const d=await r.json();
+  if(d.ok){ showAlert('alert-cfg','ok','API KEY salva!'); carregarCfgStats(); carregarSaldo(); }
   else showAlert('alert-cfg','error',d.msg);
 }
 
 async function verKey(){
-  const r = await fetch('/api/admin/apikey');
-  const d = await r.json();
-  const msg = document.getElementById('cfg-key-msg');
+  const r=await fetch('/api/admin/apikey');
+  const d=await r.json();
+  const msg=document.getElementById('cfg-key-msg');
   if(d.api_key){
-    const k = d.api_key;
-    msg.textContent = 'KEY: ' + k.slice(0,8) + '*'.repeat(Math.max(0,k.length-8));
-  } else { msg.textContent = 'Nenhuma KEY salva.'; }
+    const k=d.api_key;
+    msg.textContent='KEY: '+k.slice(0,8)+'*'.repeat(Math.max(0,k.length-8));
+  } else { msg.textContent='Nenhuma KEY salva.'; }
 }
 
 async function testarConexao(){
   clearAlert('alert-cfg');
-  showAlert('alert-cfg','info','Testando conexão com a API...');
-  const r = await fetch('/api/saldo',{method:'POST'});
-  const d = await r.json();
-  if(d.ok){
-    showAlert('alert-cfg','ok','Conexão OK! API respondendo normalmente.');
-  } else {
-    showAlert('alert-cfg','error','Falha na conexão: '+(d.msg||`HTTP ${d.status||'?'}`));
-  }
+  showAlert('alert-cfg','info','Testando...');
+  const r=await fetch('/api/saldo',{method:'POST'});
+  const d=await r.json();
+  if(d.ok) showAlert('alert-cfg','ok','Conexão OK! API respondendo normalmente.');
+  else showAlert('alert-cfg','error','Falha: '+(d.msg||`HTTP ${d.status||'?'}`));
   carregarCfgStats();
 }
 
 async function diagnostico(){
-  const div = document.getElementById('diag-body');
-  div.innerHTML = '<div style="color:#475569;font-size:13px">Rodando diagnóstico...</div>';
-  const checks = [];
-
-  // 1. API KEY presente?
-  const kr = await fetch('/api/admin/apikey');
-  const kd = await kr.json();
-  checks.push({
-    ok: !!kd.api_key,
-    label: 'API KEY configurada',
-    detalhe: kd.api_key ? 'Chave encontrada no banco.' : 'Nenhuma API KEY salva. Configure em Configurações.'
-  });
-
-  // 2. Conexão com saldo
-  let saldoOk = false, saldoDetalhe = '';
+  const div=document.getElementById('diag-body');
+  div.innerHTML='<div style="color:#475569;font-size:13px">Rodando...</div>';
+  const checks=[];
+  const kr=await fetch('/api/admin/apikey');
+  const kd=await kr.json();
+  checks.push({ok:!!kd.api_key,label:'API KEY configurada',
+    detalhe:kd.api_key?'Chave encontrada.':'Nenhuma API KEY salva.'});
+  let sOk=false,sDet='';
   try {
-    const sr = await fetch('/api/saldo',{method:'POST'});
-    const sd = await sr.json();
-    saldoOk = sd.ok;
-    saldoDetalhe = sd.ok ? 'API respondeu com status 200.' : (sd.msg||`HTTP ${sd.status}`);
-  } catch(e){ saldoDetalhe = String(e); }
-  checks.push({ ok: saldoOk, label: 'Conexão com Casa dos Dados (saldo)', detalhe: saldoDetalhe });
-
-  // 3. Endpoint CNPJ pesquisa
-  let pesqOk = false, pesqDetalhe = '';
+    const sr=await fetch('/api/saldo',{method:'POST'});
+    const sd=await sr.json();
+    sOk=sd.ok; sDet=sd.ok?'API respondeu OK.':(sd.msg||`HTTP ${sd.status}`);
+  } catch(e){ sDet=String(e); }
+  checks.push({ok:sOk,label:'Conexão com Casa dos Dados',detalhe:sDet});
+  let pOk=false,pDet='';
   try {
-    const pr = await fetch('/api/previa',{method:'POST',
+    const pr=await fetch('/api/previa',{method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({cnae:'6920601',situacao:'ATIVA'})});
-    const pd = await pr.json();
-    pesqOk = pd.ok;
-    pesqDetalhe = pd.ok ? 'Endpoint de pesquisa respondeu OK.' : (pd.msg||'Erro desconhecido');
-  } catch(e){ pesqDetalhe = String(e); }
-  checks.push({ ok: pesqOk, label: 'Endpoint de pesquisa CNPJ', detalhe: pesqDetalhe });
-
-  div.innerHTML = checks.map(c=>`
+    const pd=await pr.json();
+    pOk=pd.ok; pDet=pd.ok?'Endpoint respondeu OK.':(pd.msg||'Erro');
+  } catch(e){ pDet=String(e); }
+  checks.push({ok:pOk,label:'Endpoint pesquisa CNPJ',detalhe:pDet});
+  div.innerHTML=checks.map(c=>`
     <div class="alert ${c.ok?'alert-ok':'alert-error'}" style="margin-bottom:8px">
-      <span style="font-size:16px">${c.ok?'✓':'✗'}</span>
-      <div>
-        <b>${c.label}</b><br>
-        <span style="font-size:12px;opacity:.8">${c.detalhe}</span>
-      </div>
+      <span>${c.ok?'✓':'✗'}</span>
+      <div><b>${c.label}</b><br><span style="font-size:12px;opacity:.8">${c.detalhe}</span></div>
     </div>`).join('');
 }
 
-// =========================================================
-// LOGS
-// =========================================================
+// ---- LOGS ----
 async function carregarLogs(){
-  const r = await fetch('/api/admin/logs');
-  const d = await r.json();
-  allLogs = d.logs || [];
+  const r=await fetch('/api/admin/logs');
+  const d=await r.json();
+  allLogs=d.logs||[];
   renderLogs();
-  document.getElementById('log-count').textContent = allLogs.length;
-  document.getElementById('log-errors').textContent = allLogs.filter(l=>l.level==='ERROR').length;
-  document.getElementById('log-warns').textContent  = allLogs.filter(l=>l.level==='WARN').length;
-  document.getElementById('log-infos').textContent  = allLogs.filter(l=>l.level==='INFO').length;
+  document.getElementById('log-count').textContent=allLogs.length;
+  document.getElementById('log-errors').textContent=allLogs.filter(l=>l.level==='ERROR').length;
+  document.getElementById('log-warns').textContent=allLogs.filter(l=>l.level==='WARN').length;
+  document.getElementById('log-infos').textContent=allLogs.filter(l=>l.level==='INFO').length;
 }
 
 function renderLogs(){
-  const panel = document.getElementById('log-panel');
-  const filtrado = logFiltro==='ALL' ? allLogs : allLogs.filter(l=>l.level===logFiltro);
-  if(!filtrado.length){
-    panel.innerHTML='<div class="log-empty">Nenhum log para este filtro.</div>';
-    return;
-  }
-  panel.innerHTML = [...filtrado].reverse().map(l=>`
+  const panel=document.getElementById('log-panel');
+  const f=logFiltro==='ALL'?allLogs:allLogs.filter(l=>l.level===logFiltro);
+  if(!f.length){ panel.innerHTML='<div class="log-empty">Nenhum log para este filtro.</div>'; return; }
+  panel.innerHTML=[...f].reverse().map(l=>`
     <div class="log-row">
       <span class="log-ts">${l.ts}</span>
       <span class="log-lv ${l.level}">${l.level}</span>
@@ -973,10 +931,9 @@ async function limparLogs(){
   await fetch('/api/admin/logs',{method:'DELETE'});
   allLogs=[];
   renderLogs();
-  document.getElementById('log-count').textContent='0';
-  document.getElementById('log-errors').textContent='0';
-  document.getElementById('log-warns').textContent='0';
-  document.getElementById('log-infos').textContent='0';
+  ['log-count','log-errors','log-warns','log-infos'].forEach(id=>{
+    document.getElementById(id).textContent='0';
+  });
 }
 </script>
 </body>
@@ -1001,24 +958,24 @@ def api_login():
     d = request.json or {}
     u = autenticar(d.get("username","").strip(), d.get("senha",""))
     if not u:
-        add_log("WARN", "login", f"Tentativa falha: {d.get('username','')}")
-        return jsonify({"ok": False, "msg": "Usuário ou senha incorretos."})
+        add_log("WARN","login",f"Tentativa falha: {d.get('username','')}")
+        return jsonify({"ok":False,"msg":"Usuário ou senha incorretos."})
     session["uid"]      = u["id"]
     session["username"] = u["username"]
     session["is_admin"] = u["is_admin"]
-    add_log("INFO", "login", f"Login: {u['username']}")
-    return jsonify({"ok": True, "is_admin": u["is_admin"]})
+    add_log("INFO","login",f"Login: {u['username']}")
+    return jsonify({"ok":True,"is_admin":u["is_admin"]})
 
 @app.route("/api/logout", methods=["POST"])
 def api_logout():
-    add_log("INFO", "login", f"Logout: {session.get('username','?')}")
+    add_log("INFO","login",f"Logout: {session.get('username','?')}")
     session.clear()
-    return jsonify({"ok": True})
+    return jsonify({"ok":True})
 
 @app.route("/api/eu")
 @login_required
 def api_eu():
-    return jsonify({"ok": True, "username": session["username"], "is_admin": session["is_admin"]})
+    return jsonify({"ok":True,"username":session["username"],"is_admin":session["is_admin"]})
 
 # =========================================================
 # ROUTES — ADMIN USUÁRIOS
@@ -1028,30 +985,26 @@ def api_eu():
 @login_required
 @admin_required
 def admin_get_usuarios():
-    return jsonify({"ok": True, "usuarios": listar_usuarios()})
+    return jsonify({"ok":True,"usuarios":listar_usuarios()})
 
 @app.route("/api/admin/usuarios", methods=["POST"])
 @login_required
 @admin_required
 def admin_criar_usuario():
     d = request.json or {}
-    ok, msg = criar_usuario(d.get("username",""), d.get("senha",""), d.get("is_admin", False))
-    if ok:
-        add_log("INFO", "usuarios", f"Usuário criado: {d.get('username')}")
-    else:
-        add_log("WARN", "usuarios", f"Falha ao criar usuário: {d.get('username')}", msg)
-    return jsonify({"ok": ok, "msg": msg})
+    ok, msg = criar_usuario(d.get("username",""), d.get("senha",""), d.get("is_admin",False))
+    if ok: add_log("INFO","usuarios",f"Usuário criado: {d.get('username')}")
+    else:  add_log("WARN","usuarios",f"Falha criar: {d.get('username')}",msg)
+    return jsonify({"ok":ok,"msg":msg})
 
 @app.route("/api/admin/usuarios/<int:uid>", methods=["DELETE"])
 @login_required
 @admin_required
 def admin_remover_usuario(uid):
     ok, msg = remover_usuario(uid)
-    if ok:
-        add_log("INFO", "usuarios", f"Usuário removido: id={uid}")
-    else:
-        add_log("WARN", "usuarios", f"Falha ao remover id={uid}", msg)
-    return jsonify({"ok": ok, "msg": msg})
+    if ok: add_log("INFO","usuarios",f"Removido id={uid}")
+    else:  add_log("WARN","usuarios",f"Falha remover id={uid}",msg)
+    return jsonify({"ok":ok,"msg":msg})
 
 @app.route("/api/admin/usuarios/<int:uid>/senha", methods=["PUT"])
 @login_required
@@ -1059,21 +1012,19 @@ def admin_remover_usuario(uid):
 def admin_alterar_senha(uid):
     d = request.json or {}
     ok, msg = alterar_senha(uid, d.get("senha",""))
-    if ok:
-        add_log("INFO", "usuarios", f"Senha alterada: id={uid}")
-    else:
-        add_log("WARN", "usuarios", f"Falha ao alterar senha id={uid}", msg)
-    return jsonify({"ok": ok, "msg": msg})
+    if ok: add_log("INFO","usuarios",f"Senha alterada id={uid}")
+    else:  add_log("WARN","usuarios",f"Falha senha id={uid}",msg)
+    return jsonify({"ok":ok,"msg":msg})
 
 # =========================================================
-# ROUTES — ADMIN API KEY
+# ROUTES — API KEY
 # =========================================================
 
 @app.route("/api/admin/apikey", methods=["GET"])
 @login_required
 @admin_required
 def admin_get_key():
-    return jsonify({"ok": True, "api_key": get_api_key()})
+    return jsonify({"ok":True,"api_key":get_api_key()})
 
 @app.route("/api/admin/apikey", methods=["POST"])
 @login_required
@@ -1082,10 +1033,10 @@ def admin_set_key():
     d = request.json or {}
     key = d.get("api_key","").strip()
     if not key:
-        return jsonify({"ok": False, "msg": "Informe a chave."})
+        return jsonify({"ok":False,"msg":"Informe a chave."})
     set_api_key(key)
-    add_log("INFO", "config", "API KEY atualizada pelo admin")
-    return jsonify({"ok": True})
+    add_log("INFO","config","API KEY atualizada")
+    return jsonify({"ok":True})
 
 # =========================================================
 # ROUTES — LOGS
@@ -1095,14 +1046,14 @@ def admin_set_key():
 @login_required
 @admin_required
 def admin_get_logs():
-    return jsonify({"ok": True, "logs": _LOGS})
+    return jsonify({"ok":True,"logs":_LOGS})
 
 @app.route("/api/admin/logs", methods=["DELETE"])
 @login_required
 @admin_required
 def admin_clear_logs():
     _LOGS.clear()
-    return jsonify({"ok": True})
+    return jsonify({"ok":True})
 
 # =========================================================
 # ROUTES — SALDO
@@ -1113,17 +1064,20 @@ def admin_clear_logs():
 def api_saldo():
     key = get_api_key()
     if not key:
-        add_log("WARN", "saldo", "API KEY não configurada")
-        return jsonify({"ok": False, "msg": "API KEY não configurada."})
+        add_log("WARN","saldo","API KEY não configurada")
+        return jsonify({"ok":False,"msg":"API KEY não configurada."})
     try:
         r = requests.get(ENDPOINT_SALDO, headers=_h(key), timeout=20)
         ok = r.status_code == 200
+        dados = {}
+        try: dados = r.json()
+        except: pass
         if not ok:
-            add_log("ERROR", "saldo", f"HTTP {r.status_code}", r.text[:200])
-        return jsonify({"ok": ok, "status": r.status_code, "dados": r.json()})
+            add_log("ERROR","saldo",f"HTTP {r.status_code}",r.text[:200])
+        return jsonify({"ok":ok,"status":r.status_code,"dados":dados})
     except Exception as e:
-        add_log("ERROR", "saldo", "Exceção ao consultar saldo", str(e))
-        return jsonify({"ok": False, "msg": str(e)})
+        add_log("ERROR","saldo","Exceção",str(e))
+        return jsonify({"ok":False,"msg":str(e)})
 
 # =========================================================
 # ROUTES — PRÉVIA
@@ -1134,20 +1088,31 @@ def api_saldo():
 def api_previa():
     key = get_api_key()
     if not key:
-        add_log("WARN", "previa", "API KEY não configurada")
-        return jsonify({"ok": False, "msg": "Configure a API KEY."})
+        add_log("WARN","previa","API KEY não configurada")
+        return jsonify({"ok":False,"msg":"Configure a API KEY."})
     d = request.json or {}
     pesquisa = montar_pesquisa(d)
-    add_log("INFO", "previa", f"Prévia solicitada por {session.get('username')}", str(pesquisa)[:200])
+    add_log("INFO","previa",f"Solicitada por {session.get('username')}",str(pesquisa)[:200])
     try:
         r = requests.post(ENDPOINT_PESQUISA, json=pesquisa, headers=_h(key), timeout=30)
         ok = r.status_code == 200
+        dados = {}
+        try: dados = r.json()
+        except: pass
         if not ok:
-            add_log("ERROR", "previa", f"HTTP {r.status_code}", r.text[:300])
-        return jsonify({"ok": ok, "dados": r.json()})
+            add_log("ERROR","previa",f"HTTP {r.status_code}",r.text[:300])
+        else:
+            # loga quantos registros vieram
+            raw = dados
+            cnt = 0
+            if isinstance(raw, list): cnt = len(raw)
+            elif isinstance(raw, dict):
+                cnt = len(raw.get("cnpjs") or raw.get("data") or [])
+            add_log("INFO","previa",f"Retornou {cnt} registros")
+        return jsonify({"ok":ok,"dados":dados})
     except Exception as e:
-        add_log("ERROR", "previa", "Exceção na prévia", str(e))
-        return jsonify({"ok": False, "msg": str(e)})
+        add_log("ERROR","previa","Exceção",str(e))
+        return jsonify({"ok":False,"msg":str(e)})
 
 # =========================================================
 # ROUTES — CAPTAR
@@ -1158,40 +1123,34 @@ def api_previa():
 def api_captar():
     key = get_api_key()
     if not key:
-        add_log("WARN", "captar", "API KEY não configurada")
-        return jsonify({"ok": False, "msg": "Configure a API KEY."})
+        add_log("WARN","captar","API KEY não configurada")
+        return jsonify({"ok":False,"msg":"Configure a API KEY."})
     d = request.json or {}
     payload = {
         "total_linhas": 0,
-        "nome": d.get("nome", "captacao"),
+        "nome": d.get("nome","captacao"),
         "tipo": "csv",
         "pesquisa": montar_pesquisa(d),
     }
-    msgs = []
-    add_log("INFO", "captar", f"Captação iniciada por {session.get('username')}", str(payload.get('pesquisa',''))[:200])
+    add_log("INFO","captar",f"Iniciada por {session.get('username')}",str(payload.get('pesquisa',''))[:200])
     try:
         r = requests.post(ENDPOINT_GERAR, json=payload, headers=_h(key), timeout=30)
     except requests.exceptions.RequestException as e:
-        add_log("ERROR", "captar", "Erro de conexão ao gerar arquivo", str(e))
-        return jsonify({"ok": False, "msg": str(e), "log": msgs})
-
-    if r.status_code not in (200, 201, 202):
-        add_log("ERROR", "captar", f"HTTP {r.status_code} ao gerar arquivo", r.text[:300])
-        return jsonify({"ok": False, "msg": f"HTTP {r.status_code}", "log": msgs})
-
-    try:
-        body = r.json()
-    except Exception:
-        add_log("ERROR", "captar", "Resposta inválida da API")
-        return jsonify({"ok": False, "msg": "Resposta inválida", "log": msgs})
-
+        add_log("ERROR","captar","Erro conexão",str(e))
+        return jsonify({"ok":False,"msg":str(e)})
+    if r.status_code not in (200,201,202):
+        add_log("ERROR","captar",f"HTTP {r.status_code}",r.text[:300])
+        return jsonify({"ok":False,"msg":f"HTTP {r.status_code}"})
+    try: body = r.json()
+    except:
+        add_log("ERROR","captar","Resposta inválida")
+        return jsonify({"ok":False,"msg":"Resposta inválida"})
     uuid = body.get("arquivo_uuid") or body.get("uuid")
     if not uuid:
-        add_log("ERROR", "captar", "UUID não retornado", str(body)[:200])
-        return jsonify({"ok": False, "msg": "UUID não retornado", "log": msgs})
-
-    add_log("INFO", "captar", f"Arquivo gerado com sucesso: {uuid}")
-    return jsonify({"ok": True, "uuid": uuid, "log": msgs})
+        add_log("ERROR","captar","UUID não retornado",str(body)[:200])
+        return jsonify({"ok":False,"msg":"UUID não retornado"})
+    add_log("INFO","captar",f"Arquivo gerado: {uuid}")
+    return jsonify({"ok":True,"uuid":uuid})
 
 # =========================================================
 # ROUTES — SOLICITAÇÕES
@@ -1202,20 +1161,25 @@ def api_captar():
 def api_solicitacoes():
     key = get_api_key()
     if not key:
-        add_log("WARN", "solicitacoes", "API KEY não configurada")
-        return jsonify({"ok": False, "msg": "Configure a API KEY."})
+        add_log("WARN","solicitacoes","API KEY não configurada")
+        return jsonify({"ok":False,"msg":"Configure a API KEY."})
     try:
         r = requests.get(ENDPOINT_LISTAR, headers=_h(key), timeout=25)
         ok = r.status_code == 200
+        dados = {}
+        try: dados = r.json()
+        except: pass
         if not ok:
-            add_log("ERROR", "solicitacoes", f"HTTP {r.status_code}", r.text[:200])
-        return jsonify({"ok": ok, "dados": r.json()})
+            add_log("ERROR","solicitacoes",f"HTTP {r.status_code}",r.text[:200])
+        else:
+            add_log("INFO","solicitacoes","Lista atualizada com sucesso")
+        return jsonify({"ok":ok,"dados":dados})
     except Exception as e:
-        add_log("ERROR", "solicitacoes", "Exceção ao listar solicitações", str(e))
-        return jsonify({"ok": False, "msg": str(e)})
+        add_log("ERROR","solicitacoes","Exceção",str(e))
+        return jsonify({"ok":False,"msg":str(e)})
 
 # =========================================================
-# ROUTES — BAIXAR
+# ROUTES — DOWNLOAD
 # =========================================================
 
 @app.route("/api/baixar-solicitacao/<uuid>")
@@ -1224,44 +1188,38 @@ def baixar(uuid):
     key = get_api_key()
     if not key:
         return "API KEY não configurada.", 400
-    add_log("INFO", "download", f"Download solicitado: {uuid} por {session.get('username')}")
+    add_log("INFO","download",f"Solicitado: {uuid} por {session.get('username')}")
     try:
         r = requests.get(f"{ENDPOINT_CONSULTAR}/{uuid}", headers=_h(key), timeout=30)
     except Exception as e:
-        add_log("ERROR", "download", f"Erro ao consultar arquivo {uuid}", str(e))
+        add_log("ERROR","download",f"Erro consultar {uuid}",str(e))
         return str(e), 500
-
     if r.status_code == 425:
-        add_log("WARN", "download", f"Arquivo ainda processando: {uuid}")
-        return "Arquivo ainda processando. Aguarde e tente novamente.", 425
+        add_log("WARN","download",f"Ainda processando: {uuid}")
+        return "Arquivo ainda processando. Aguarde.", 425
     if r.status_code != 200:
-        add_log("ERROR", "download", f"HTTP {r.status_code} ao consultar {uuid}", r.text[:200])
+        add_log("ERROR","download",f"HTTP {r.status_code} para {uuid}",r.text[:200])
         return f"Erro HTTP {r.status_code}.", r.status_code
-
-    try:
-        body = r.json()
-    except Exception:
-        return "Resposta inválida.", 500
-
+    try: body = r.json()
+    except: return "Resposta inválida.", 500
     link = body.get("link") or body.get("url") or body.get("download_url")
     if not link:
-        add_log("WARN", "download", f"Link não disponível para {uuid} — ainda processando")
-        return "Arquivo ainda processando. Aguarde e tente novamente.", 425
-
+        add_log("WARN","download",f"Link ausente para {uuid} — ainda processando")
+        return "Arquivo ainda processando. Aguarde.", 425
     try:
         csv_r = requests.get(link, timeout=120, stream=True)
         if csv_r.status_code != 200:
-            add_log("WARN", "download", f"Proxy falhou para {uuid}, redirecionando")
+            add_log("WARN","download",f"Proxy falhou, redirecionando: {uuid}")
             return redirect(link)
         filename = f"captacao_{uuid[:8]}.csv"
-        add_log("INFO", "download", f"Proxy download OK: {filename}")
+        add_log("INFO","download",f"Proxy OK: {filename}")
         return Response(
             csv_r.iter_content(chunk_size=8192),
             content_type="text/csv; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={"Content-Disposition":f'attachment; filename="{filename}"'},
         )
     except Exception:
-        add_log("WARN", "download", f"Proxy exception para {uuid}, redirecionando")
+        add_log("WARN","download",f"Proxy exception, redirecionando: {uuid}")
         return redirect(link)
 
 # =========================================================
