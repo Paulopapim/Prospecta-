@@ -229,7 +229,7 @@ def api_saldo():
         return jsonify({"ok": False,
                         "msg": "Nenhuma chave configurada. Avise o admin."})
     try:
-    rc = requests.get(...)
+        rc = requests.get(...)
     # ... código aqui ...
     if rc.status_code != 200:
         return ("O arquivo ainda não está pronto (status "
