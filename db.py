@@ -15,6 +15,7 @@ Segurança: senhas com hash PBKDF2 (sem dependência externa).
 
 import os
 import hashlib
+import sqlite3
 import secrets
 from contextlib import contextmanager
 
