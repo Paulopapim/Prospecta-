@@ -349,8 +349,6 @@ def api_solicitacoes():
         return jsonify({"ok": True, "itens": out})
     except requests.exceptions.RequestException as e:
         return jsonify({"ok": False, "msg": f"Erro de conexão: {e}"})
-
-
 @app.route("/api/baixar-solicitacao/<uuid>")
 @login_obrigatorio
 def api_baixar_solicitacao(uuid):
@@ -367,36 +365,20 @@ def api_baixar_solicitacao(uuid):
     try:
         rc = requests.get(f"{ENDPOINT_CONSULTAR}/{uuid}",
                           headers=_h(key), timeout=20)
-<<<<<<< HEAD
-        print(f"[DEBUG] Status code: {rc.status_code}")
-        print(f"[DEBUG] Response text: {rc.text}")
-        if rc.status_code != 200:
-            return ("O arquivo ainda não está pronto (status "
-                    f"HTTP {rc.status_code}). Tente novamente em instantes."), 425
-        try:
-            link = rc.json().get("link")
-        except Exception as e:
-            print(f"[DEBUG] Erro ao fazer rc.json(): {e}")
-            return f"Erro ao processar resposta da Casa dos Dados: {e}", 502
-=======
-        if rc.status_code != 200:
-            return ("O arquivo ainda não está pronto (status "
-                    f"HTTP {rc.status_code}). Tente novamente em instantes."), 425
-        link = rc.json().get("link")
->>>>>>> 43a5b347d40617be14912483ec4e47612b875f5a
+if rc.status_code != 200:
+    return ("O arquivo ainda não está pronto (status "
+    f"HTTP {rc.status_code}). Tente novamente em instantes."), 425
+try:
+    link = rc.json().get("link")
+except Exception as e:
+    return f"Erro ao processar resposta da Casa dos Dados: {e}", 502
         if not link:
             return "Arquivo ainda em processamento. Aguarde.", 425
         # Redirect 302 — navegador baixa direto da Casa dos Dados.
         # Não passa pela memória do Render, então nunca dá 502.
         return redirect(link)
-    except requests.exceptions.RequestException as e:
-<<<<<<< HEAD
-        print(f"[DEBUG] Erro de conexão: {e}")
-=======
->>>>>>> 43a5b347d40617be14912483ec4e47612b875f5a
-        return f"Erro ao consultar arquivo: {e}", 502
-
-
+   except requests.exceptions.RequestException as e:
+    return f"Erro ao consultar arquivo: {e}", 502
 @app.route("/api/download/<chave>")
 @login_obrigatorio
 def api_download(chave):
