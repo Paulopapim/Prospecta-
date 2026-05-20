@@ -1,22 +1,25 @@
 """
 Captador de CNPJs — Casa dos Dados
+app.py — versão completa com todas as abas + painel de logs
 """
 
 import io
 import os
+import json
 import secrets
-import sqlite3
+import datetime
 from functools import wraps
 
 import requests
 from flask import (
-    Flask,
-    jsonify,
-    request,
-    send_file,
-    Response,
-    session,
-    redirect,
+    Flask, jsonify, request,
+    send_file, Response, session, redirect,
+)
+
+from db import (
+    init_db, autenticar, listar_usuarios,
+    criar_usuario, remover_usuario, alterar_senha,
+    get_api_key, set_api_key,
 )
 
 # =========================================================
@@ -26,87 +29,27 @@ from flask import (
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 
-DB_PATH = os.environ.get("DB_PATH", "database.db")
-
-ENDPOINT_GERAR    = "https://api.casadosdados.com.br/v5/cnpj/pesquisa/arquivo"
-ENDPOINT_CONSULTAR = "https://api.casadosdados.com.br/v4/public/cnpj/pesquisa/arquivo"
-ENDPOINT_LISTAR   = "https://api.casadosdados.com.br/v4/cnpj/pesquisa/arquivo"
-ENDPOINT_PESQUISA = "https://api.casadosdados.com.br/v5/cnpj/pesquisa"
-ENDPOINT_SALDO    = "https://api.casadosdados.com.br/v5/saldo"
-
-# =========================================================
-# DATABASE
-# =========================================================
-
-def conn():
-    return sqlite3.connect(DB_PATH)
-
-
-def init_db():
-    c = conn()
-    cur = c.cursor()
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS usuarios (
-        id       INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE,
-        senha    TEXT,
-        is_admin INTEGER DEFAULT 0
-    )
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS config (
-        chave TEXT PRIMARY KEY,
-        valor TEXT
-    )
-    """)
-
-    if not cur.execute("SELECT 1 FROM usuarios WHERE username='admin'").fetchone():
-        cur.execute("""
-        INSERT INTO usuarios(username, senha, is_admin)
-        VALUES('admin','admin123',1)
-        """)
-
-    c.commit()
-    c.close()
-
-
 init_db()
 
-# =========================================================
-# HELPERS DB
-# =========================================================
+ENDPOINT_GERAR     = "https://api.casadosdados.com.br/v5/cnpj/pesquisa/arquivo"
+ENDPOINT_CONSULTAR = "https://api.casadosdados.com.br/v4/public/cnpj/pesquisa/arquivo"
+ENDPOINT_LISTAR    = "https://api.casadosdados.com.br/v4/cnpj/pesquisa/arquivo"
+ENDPOINT_PESQUISA  = "https://api.casadosdados.com.br/v5/cnpj/pesquisa"
+ENDPOINT_SALDO     = "https://api.casadosdados.com.br/v5/saldo"
 
-def auth(username, senha):
-    c = conn()
-    cur = c.cursor()
-    cur.execute("""
-        SELECT id, username, is_admin
-        FROM usuarios WHERE username=? AND senha=?
-    """, (username, senha))
-    r = cur.fetchone()
-    c.close()
-    if not r:
-        return None
-    return {"id": r[0], "username": r[1], "is_admin": bool(r[2])}
+# log em memória (últimas 200 entradas)
+_LOGS = []
 
-
-def get_api_key():
-    c = conn()
-    cur = c.cursor()
-    cur.execute("SELECT valor FROM config WHERE chave='api_key'")
-    r = cur.fetchone()
-    c.close()
-    return r[0] if r else ""
-
-
-def set_api_key(v):
-    c = conn()
-    cur = c.cursor()
-    cur.execute("INSERT OR REPLACE INTO config(chave,valor) VALUES('api_key',?)", (v,))
-    c.commit()
-    c.close()
+def add_log(level, origem, msg, detalhe=""):
+    _LOGS.append({
+        "ts": datetime.datetime.now().strftime("%d/%m %H:%M:%S"),
+        "level": level,          # INFO | WARN | ERROR
+        "origem": origem,
+        "msg": msg,
+        "detalhe": str(detalhe)[:500],
+    })
+    if len(_LOGS) > 200:
+        _LOGS.pop(0)
 
 # =========================================================
 # DECORATORS
@@ -120,7 +63,6 @@ def login_required(f):
         return f(*a, **k)
     return w
 
-
 def admin_required(f):
     @wraps(f)
     def w(*a, **k):
@@ -129,8 +71,7 @@ def admin_required(f):
         return f(*a, **k)
     return w
 
-
-def _headers(key):
+def _h(key):
     return {"api-key": key, "Content-Type": "application/json"}
 
 # =========================================================
@@ -144,13 +85,10 @@ def montar_pesquisa(d):
         ],
         "situacao_cadastral": [d.get("situacao") or "ATIVA"],
     }
-
     if d.get("ufs"):
         p["uf"] = [u.strip().lower() for u in d["ufs"].split(",") if u.strip()]
-
     if d.get("municipios"):
         p["municipio"] = [m.strip().lower() for m in d["municipios"].split(",") if m.strip()]
-
     if d.get("ultimos_dias"):
         try:
             dias = int(d["ultimos_dias"])
@@ -158,10 +96,8 @@ def montar_pesquisa(d):
                 p["data_abertura"] = {"ultimos_dias": dias}
         except Exception:
             pass
-
     if d.get("somente_mei"):
         p["mei"] = {"optante": True}
-
     mais = {}
     if d.get("com_telefone"):
         mais["com_telefone"] = True
@@ -169,14 +105,12 @@ def montar_pesquisa(d):
         mais["com_email"] = True
     if mais:
         p["mais_filtros"] = mais
-
     try:
         lim = int(d.get("total_linhas", 0) or 0)
         if 1 <= lim <= 1000:
             p["limite"] = lim
     except Exception:
         pass
-
     return p
 
 # =========================================================
@@ -191,40 +125,55 @@ HTML_LOGIN = """<!DOCTYPE html>
 <title>Login — Captador CNPJ</title>
 <link rel="icon" href="data:,">
 <style>
-*{box-sizing:border-box}
-body{background:#0f172a;color:#fff;font-family:Arial,sans-serif;display:flex;
-     justify-content:center;align-items:center;height:100vh;margin:0}
-.box{background:#111827;padding:40px;border-radius:12px;width:320px}
-h2{margin:0 0 20px}
-input{width:100%;padding:12px;margin-top:10px;border:none;border-radius:8px;
-      background:#1f2937;color:#fff;font-size:14px}
-button{width:100%;padding:12px;margin-top:16px;border:none;border-radius:8px;
-       background:#84cc16;font-weight:bold;cursor:pointer;font-size:15px}
-#erro{margin-top:12px;color:#fb7185;font-size:13px}
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#080e1a;color:#e2e8f0;font-family:'DM Sans',sans-serif;
+     display:flex;justify-content:center;align-items:center;min-height:100vh}
+.card{background:#0f1829;border:1px solid #1e2d45;border-radius:18px;
+      padding:44px 40px;width:380px}
+h2{font-size:22px;font-weight:600;margin-bottom:6px;color:#f1f5f9}
+.sub{font-size:13px;color:#64748b;margin-bottom:32px}
+label{font-size:12px;color:#64748b;display:block;margin-bottom:5px;font-weight:500;letter-spacing:.03em}
+.field{margin-bottom:18px}
+input{width:100%;padding:11px 14px;background:#080e1a;border:1px solid #1e2d45;
+      border-radius:10px;color:#f1f5f9;font-size:14px;outline:none;transition:.2s;font-family:inherit}
+input:focus{border-color:#4f6ef7;box-shadow:0 0 0 3px rgba(79,110,247,.15)}
+.btn{width:100%;padding:13px;background:#4f6ef7;border:none;border-radius:10px;
+     color:#fff;font-weight:600;font-size:15px;cursor:pointer;margin-top:8px;
+     font-family:inherit;transition:.2s;letter-spacing:.01em}
+.btn:hover{background:#3d5ce6}
+.erro{margin-top:14px;font-size:13px;color:#f87171;min-height:18px;text-align:center}
 </style>
 </head>
 <body>
-<div class="box">
+<div class="card">
   <h2>Captador CNPJ</h2>
-  <input id="u" placeholder="Usuário">
-  <input id="s" type="password" placeholder="Senha">
-  <button onclick="entrar()">Entrar</button>
-  <div id="erro"></div>
+  <p class="sub">Acesse sua conta para continuar</p>
+  <div class="field"><label>Usuário</label>
+    <input id="u" type="text" placeholder="admin" autocomplete="username">
+  </div>
+  <div class="field"><label>Senha</label>
+    <input id="s" type="password" placeholder="••••••••" autocomplete="current-password">
+  </div>
+  <button class="btn" onclick="entrar()">Entrar</button>
+  <div class="erro" id="erro"></div>
 </div>
 <script>
 async function entrar(){
-  const r = await fetch('/api/login',{method:'POST',
+  document.getElementById('erro').textContent='';
+  const r=await fetch('/api/login',{method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({username:document.getElementById('u').value,
                          senha:document.getElementById('s').value})});
-  const d = await r.json();
+  const d=await r.json();
   if(d.ok) location.reload();
-  else document.getElementById('erro').innerText = d.msg;
+  else document.getElementById('erro').textContent=d.msg;
 }
-document.addEventListener('keydown',e=>{ if(e.key==='Enter') entrar(); });
+document.addEventListener('keydown',e=>{if(e.key==='Enter')entrar()});
 </script>
 </body>
 </html>"""
+
 
 HTML_APP = """<!DOCTYPE html>
 <html lang="pt-br">
@@ -234,303 +183,807 @@ HTML_APP = """<!DOCTYPE html>
 <title>Captador CNPJ</title>
 <link rel="icon" href="data:,">
 <style>
-*{box-sizing:border-box}
-body{background:#0f172a;color:#fff;font-family:Arial,sans-serif;margin:0;padding:20px}
-.wrap{max-width:960px;margin:auto}
-.card{background:#111827;padding:24px;border-radius:12px;margin-bottom:20px}
-h1{margin:0 0 4px;font-size:22px}
-label{font-size:13px;color:#9ca3af;display:block;margin-top:14px}
-input,select{width:100%;padding:10px;margin-top:4px;border:none;border-radius:8px;
-             background:#1f2937;color:#fff;font-size:14px}
-.row{display:flex;gap:10px;flex-wrap:wrap}
-.row>div{flex:1;min-width:160px}
-.btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
-button{padding:10px 18px;border:none;border-radius:8px;background:#84cc16;
-       font-weight:bold;cursor:pointer;font-size:14px}
-button.sec{background:#374151;color:#fff}
-button.danger{background:#ef4444;color:#fff}
-#log{margin-top:16px;white-space:pre-wrap;background:#0b1220;padding:14px;
-     border-radius:8px;font-size:13px;display:none;max-height:300px;overflow-y:auto}
-#log.show{display:block}
-table{width:100%;margin-top:16px;border-collapse:collapse;font-size:13px}
-th,td{border:1px solid #374151;padding:8px;text-align:left}
-th{background:#1f2937}
-a.dl{color:#84cc16;text-decoration:none;font-weight:bold}
-.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:bold}
-.tag.pronto{background:#16a34a}
-.tag.proc{background:#ca8a04}
-.tag.erro{background:#dc2626}
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#080e1a;color:#e2e8f0;font-family:'DM Sans',sans-serif;display:flex;min-height:100vh}
+
+/* ---- sidebar ---- */
+.sidebar{width:230px;min-width:230px;background:#0f1829;border-right:1px solid #1e2d45;
+  display:flex;flex-direction:column;padding:0;position:fixed;top:0;left:0;height:100vh;overflow-y:auto}
+.logo{padding:22px 20px 20px;border-bottom:1px solid #1e2d45}
+.logo h1{font-size:15px;font-weight:600;color:#f1f5f9}
+.logo .badge{font-size:11px;color:#4f6ef7;background:#0d1e3d;padding:2px 8px;
+  border-radius:20px;display:inline-block;margin-top:4px}
+.nav{padding:12px 10px;flex:1}
+.nav-section{font-size:10px;font-weight:600;color:#334155;letter-spacing:.08em;
+  text-transform:uppercase;padding:14px 10px 6px}
+.nav-btn{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;
+  border:none;background:none;color:#64748b;font-size:13.5px;font-family:inherit;
+  border-radius:8px;cursor:pointer;text-align:left;transition:.15s;font-weight:500}
+.nav-btn:hover{background:#1e2d45;color:#e2e8f0}
+.nav-btn.active{background:#1a2547;color:#7c9ef8}
+.nav-btn svg{width:16px;height:16px;flex-shrink:0;opacity:.8}
+.saldo-box{padding:14px 16px;margin:10px;background:#080e1a;border:1px solid #1e2d45;
+  border-radius:10px;font-size:12px}
+.saldo-box .s-label{color:#475569;margin-bottom:2px}
+.saldo-box .s-val{color:#7c9ef8;font-weight:600;font-size:14px}
+.user-box{padding:14px 16px;border-top:1px solid #1e2d45;display:flex;
+  align-items:center;gap:10px}
+.user-av{width:30px;height:30px;border-radius:50%;background:#1a2547;
+  display:flex;align-items:center;justify-content:center;font-size:12px;
+  font-weight:600;color:#7c9ef8;flex-shrink:0}
+.user-name{font-size:13px;font-weight:500;color:#cbd5e1}
+.btn-logout{margin-left:auto;background:none;border:none;cursor:pointer;
+  color:#475569;font-size:11px;padding:4px 8px;border-radius:6px;
+  font-family:inherit;transition:.15s}
+.btn-logout:hover{color:#f87171;background:#1e2d45}
+
+/* ---- main ---- */
+.main{margin-left:230px;flex:1;padding:28px 32px;min-height:100vh}
+.page{display:none}
+.page.active{display:block}
+.page-title{font-size:20px;font-weight:600;color:#f1f5f9;margin-bottom:6px}
+.page-sub{font-size:13px;color:#475569;margin-bottom:24px}
+
+/* ---- cards ---- */
+.card{background:#0f1829;border:1px solid #1e2d45;border-radius:14px;padding:24px;margin-bottom:20px}
+.card-title{font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:16px;
+  text-transform:uppercase;letter-spacing:.05em}
+
+/* ---- form ---- */
+label.lbl{font-size:12px;color:#475569;font-weight:500;display:block;margin-bottom:4px}
+input.inp,select.inp{width:100%;padding:10px 13px;background:#080e1a;border:1px solid #1e2d45;
+  border-radius:9px;color:#e2e8f0;font-size:13.5px;font-family:inherit;outline:none;transition:.2s}
+input.inp:focus,select.inp:focus{border-color:#4f6ef7;box-shadow:0 0 0 3px rgba(79,110,247,.1)}
+select.inp option{background:#0f1829}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.field{margin-bottom:14px}
+.checks{display:flex;gap:20px;flex-wrap:wrap;margin:4px 0 16px}
+.checks label{display:flex;align-items:center;gap:7px;font-size:13px;color:#94a3b8;cursor:pointer}
+.checks input[type=checkbox]{width:15px;height:15px;accent-color:#4f6ef7}
+
+/* ---- buttons ---- */
+.btn{padding:10px 20px;border:none;border-radius:9px;font-family:inherit;
+  font-weight:600;font-size:13.5px;cursor:pointer;transition:.2s;display:inline-flex;align-items:center;gap:7px}
+.btn-primary{background:#4f6ef7;color:#fff}
+.btn-primary:hover{background:#3d5ce6}
+.btn-secondary{background:#1e2d45;color:#94a3b8}
+.btn-secondary:hover{background:#253550;color:#e2e8f0}
+.btn-danger{background:#3d1515;color:#f87171;border:1px solid #5a1f1f}
+.btn-danger:hover{background:#5a1f1f}
+.btn-success{background:#0d2e1e;color:#4ade80;border:1px solid #14532d}
+.btn-success:hover{background:#14532d}
+.btn-sm{padding:6px 12px;font-size:12px}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+
+/* ---- table ---- */
+.tbl-wrap{overflow-x:auto;margin-top:12px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:#0d1626;color:#475569;padding:10px 12px;text-align:left;
+   font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em;
+   border-bottom:1px solid #1e2d45}
+td{padding:10px 12px;border-bottom:1px solid #0f1829;color:#cbd5e1;vertical-align:middle}
+tr:hover td{background:#0d1626}
+.badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600}
+.badge-green{background:#052e16;color:#4ade80;border:1px solid #14532d}
+.badge-amber{background:#2d1a02;color:#fbbf24;border:1px solid #78350f}
+.badge-red{background:#1f0606;color:#f87171;border:1px solid #7f1d1d}
+.badge-blue{background:#0c1e40;color:#60a5fa;border:1px solid #1e3a5f}
+.badge-gray{background:#1a2130;color:#64748b;border:1px solid #334155}
+
+/* ---- log panel ---- */
+.log-panel{background:#050c18;border:1px solid #1e2d45;border-radius:10px;
+  font-family:'DM Mono',monospace,'Courier New';font-size:12px;
+  max-height:360px;overflow-y:auto;padding:0}
+.log-row{display:flex;gap:0;padding:7px 14px;border-bottom:1px solid #0a1120;align-items:flex-start}
+.log-row:last-child{border-bottom:none}
+.log-row:hover{background:#0a1525}
+.log-ts{color:#334155;min-width:100px;flex-shrink:0}
+.log-lv{min-width:52px;flex-shrink:0;font-weight:700}
+.log-lv.INFO{color:#38bdf8}
+.log-lv.WARN{color:#fbbf24}
+.log-lv.ERROR{color:#f87171}
+.log-orig{color:#4f6ef7;min-width:120px;flex-shrink:0}
+.log-msg{color:#94a3b8;flex:1}
+.log-det{color:#334155;font-size:11px;margin-top:2px;word-break:break-all}
+.log-empty{padding:20px;text-align:center;color:#334155}
+.log-filters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.log-filter-btn{padding:5px 13px;border-radius:20px;border:1px solid #1e2d45;
+  background:none;color:#475569;font-size:12px;cursor:pointer;font-family:inherit;transition:.15s}
+.log-filter-btn:hover{border-color:#4f6ef7;color:#7c9ef8}
+.log-filter-btn.on{background:#0d1e3d;border-color:#4f6ef7;color:#7c9ef8}
+
+/* ---- status card ---- */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:20px}
+.stat-card{background:#0f1829;border:1px solid #1e2d45;border-radius:12px;padding:18px 20px}
+.stat-label{font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.stat-val{font-size:24px;font-weight:600;color:#f1f5f9}
+.stat-val.green{color:#4ade80}
+.stat-val.amber{color:#fbbf24}
+.stat-val.red{color:#f87171}
+.stat-val.blue{color:#60a5fa}
+
+/* ---- misc ---- */
+.divider{border:none;border-top:1px solid #1e2d45;margin:20px 0}
+.alert{padding:12px 16px;border-radius:9px;font-size:13px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px}
+.alert-info{background:#0c1e40;border:1px solid #1e3a5f;color:#93c5fd}
+.alert-warn{background:#2d1a02;border:1px solid #78350f;color:#fcd34d}
+.alert-error{background:#1f0606;border:1px solid #7f1d1d;color:#fca5a5}
+.alert-ok{background:#052e16;border:1px solid #14532d;color:#86efac}
+.dl-link{color:#60a5fa;text-decoration:none;font-weight:600;font-size:12px}
+.dl-link:hover{text-decoration:underline}
+.api-test-row{display:flex;gap:10px;align-items:flex-end;margin-top:4px}
+.api-test-row .inp{flex:1}
+#preview-table td,#preview-table th{font-size:12px;padding:7px 10px}
 </style>
 </head>
 <body>
-<div class="wrap">
 
-<div class="card">
-  <h1>📋 Captador de CNPJs</h1>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-    <span id="saldo_txt" style="font-size:13px;color:#9ca3af">—</span>
-    <div style="display:flex;gap:8px">
-      <button class="sec" onclick="carregarSaldo()">Atualizar saldo</button>
-      <button class="danger" onclick="logout()">Sair</button>
-    </div>
+<!-- ============ SIDEBAR ============ -->
+<div class="sidebar">
+  <div class="logo">
+    <h1>Captador <span style="color:#4f6ef7">CNPJ</span></h1>
+    <span class="badge">Casa dos Dados</span>
+  </div>
+
+  <div class="nav">
+    <div class="nav-section">Principal</div>
+    <button class="nav-btn active" onclick="goto('captacao')" id="nb-captacao">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
+      </svg> Captação
+    </button>
+    <button class="nav-btn" onclick="goto('solicitacoes')" id="nb-solicitacoes">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 4H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/>
+      </svg> Solicitações
+    </button>
+
+    <div class="nav-section" id="admin-section" style="display:none">Admin</div>
+    <button class="nav-btn" onclick="goto('usuarios')" id="nb-usuarios" style="display:none">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-1a4 4 0 0 0-5.33-3.77M9 20H4v-1a4 4 0 0 1 5.33-3.77M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/>
+      </svg> Usuários
+    </button>
+    <button class="nav-btn" onclick="goto('configuracoes')" id="nb-configuracoes" style="display:none">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.3 3.4A1 1 0 0 1 12 4v1a7 7 0 0 1 2.5 1.4l.9-.5a1 1 0 0 1 1.2.2l1.3 1.3a1 1 0 0 1 .2 1.2l-.5.9A7 7 0 0 1 19 12h1a1 1 0 0 1 1 1v1.8a1 1 0 0 1-.7 1l-.9.3A7 7 0 0 1 17.5 18l.5.9a1 1 0 0 1-.2 1.2l-1.3 1.3a1 1 0 0 1-1.2.2l-.9-.5A7 7 0 0 1 12 22v1a1 1 0 0 1-1.7.7"/>
+      </svg> Configurações
+    </button>
+    <button class="nav-btn" onclick="goto('logs')" id="nb-logs" style="display:none">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h10M4 18h6"/>
+      </svg> Logs & Erros
+    </button>
+  </div>
+
+  <div class="saldo-box">
+    <div class="s-label">Saldo API</div>
+    <div class="s-val" id="saldo-val">—</div>
+    <button class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%;justify-content:center"
+      onclick="carregarSaldo()">Atualizar</button>
+  </div>
+
+  <div class="user-box">
+    <div class="user-av" id="user-av">A</div>
+    <span class="user-name" id="user-name">—</span>
+    <button class="btn-logout" onclick="logout()">Sair</button>
   </div>
 </div>
 
-<div class="card">
-  <h3 style="margin:0 0 12px">Filtros</h3>
-  <div class="row">
-    <div>
-      <label>CNAE(s) — separados por vírgula</label>
-      <input id="cnae" value="6920601">
-    </div>
-    <div>
-      <label>Situação cadastral</label>
-      <select id="situacao">
-        <option value="ATIVA">ATIVA</option>
-        <option value="BAIXADA">BAIXADA</option>
-        <option value="INAPTA">INAPTA</option>
-        <option value="SUSPENSA">SUSPENSA</option>
-      </select>
-    </div>
-  </div>
-  <div class="row">
-    <div>
-      <label>UF(s) — ex: sp,rj</label>
-      <input id="ufs" placeholder="Todas">
-    </div>
-    <div>
-      <label>Município(s)</label>
-      <input id="municipios" placeholder="Todos">
-    </div>
-    <div>
-      <label>Últimos N dias (abertura)</label>
-      <input id="ultimos_dias" type="number" placeholder="0 = ignorar">
-    </div>
-  </div>
-  <div class="row">
-    <div>
-      <label>Total de linhas (0 = máx)</label>
-      <input id="total_linhas" type="number" placeholder="0">
-    </div>
-    <div>
-      <label>Nome do arquivo</label>
-      <input id="nome" value="captacao">
-    </div>
-  </div>
-  <div style="margin-top:12px;display:flex;gap:18px;font-size:13px">
-    <label style="display:flex;align-items:center;gap:6px;margin:0">
-      <input type="checkbox" id="somente_mei"> Somente MEI
-    </label>
-    <label style="display:flex;align-items:center;gap:6px;margin:0">
-      <input type="checkbox" id="com_telefone"> Com telefone
-    </label>
-    <label style="display:flex;align-items:center;gap:6px;margin:0">
-      <input type="checkbox" id="com_email"> Com e-mail
-    </label>
-  </div>
-  <div class="btns">
-    <button onclick="previa()">🔍 Prévia (5 registros)</button>
-    <button onclick="captar()">📤 Gerar Arquivo</button>
-  </div>
-  <pre id="log"></pre>
-  <div id="previa_div"></div>
-</div>
+<!-- ============ MAIN ============ -->
+<div class="main">
 
-<div class="card">
-  <div style="display:flex;justify-content:space-between;align-items:center">
-    <h3 style="margin:0">Solicitações geradas</h3>
-    <button class="sec" onclick="listarSolicitacoes()">🔄 Atualizar lista</button>
-  </div>
-  <div id="solicitacoes_div" style="margin-top:12px;font-size:13px;color:#9ca3af">
-    Clique em "Atualizar lista" para carregar.
-  </div>
-</div>
+  <!-- ======= CAPTAÇÃO ======= -->
+  <div class="page active" id="page-captacao">
+    <div class="page-title">Captação de CNPJs</div>
+    <div class="page-sub">Configure os filtros e gere o arquivo CSV</div>
 
-<div id="admin_card" class="card" style="display:none">
-  <h3 style="margin:0 0 12px">⚙️ Admin — API KEY</h3>
-  <input id="apikey_input" type="password" placeholder="Cole sua API KEY aqui">
-  <div class="btns">
-    <button onclick="salvarKey()">💾 Salvar API KEY</button>
-    <button class="sec" onclick="verKey()">👁 Ver KEY atual</button>
-  </div>
-  <div id="key_msg" style="margin-top:8px;font-size:13px"></div>
-</div>
+    <div class="card">
+      <div class="card-title">Filtros de busca</div>
+      <div class="grid2">
+        <div class="field">
+          <label class="lbl">CNAE(s) — separar por vírgula</label>
+          <input class="inp" id="cnae" value="6920601" placeholder="ex: 6920601,7020400">
+        </div>
+        <div class="field">
+          <label class="lbl">Situação Cadastral</label>
+          <select class="inp" id="situacao">
+            <option value="ATIVA">Ativa</option>
+            <option value="BAIXADA">Baixada</option>
+            <option value="INAPTA">Inapta</option>
+            <option value="SUSPENSA">Suspensa</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="lbl">UF(s) — ex: SP,RJ</label>
+          <input class="inp" id="ufs" placeholder="Todas">
+        </div>
+        <div class="field">
+          <label class="lbl">Município(s)</label>
+          <input class="inp" id="municipios" placeholder="Todos">
+        </div>
+        <div class="field">
+          <label class="lbl">Últimos N dias (abertura)</label>
+          <input class="inp" id="ultimos_dias" type="number" placeholder="0 = ignorar">
+        </div>
+        <div class="field">
+          <label class="lbl">Total de linhas (0 = máximo)</label>
+          <input class="inp" id="total_linhas" type="number" placeholder="0">
+        </div>
+      </div>
+      <div class="field">
+        <label class="lbl">Nome do arquivo</label>
+        <input class="inp" id="nome" value="captacao" style="max-width:300px">
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="somente_mei"> Somente MEI</label>
+        <label><input type="checkbox" id="com_telefone"> Com telefone</label>
+        <label><input type="checkbox" id="com_email"> Com e-mail</label>
+      </div>
 
-</div><!-- wrap -->
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="previa()">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8"/><path stroke-linecap="round" d="m21 21-4.35-4.35"/>
+          </svg> Prévia (10 registros)
+        </button>
+        <button class="btn btn-primary" onclick="captar()">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M7 10l5 5 5-5M12 4v11"/>
+          </svg> Gerar Arquivo
+        </button>
+      </div>
+    </div>
+
+    <div id="alert-captacao"></div>
+
+    <div id="preview-card" class="card" style="display:none">
+      <div class="card-title">Prévia — primeiros registros</div>
+      <div class="tbl-wrap">
+        <table id="preview-table">
+          <thead><tr><th>CNPJ</th><th>Razão Social</th><th>Município</th><th>UF</th><th>Telefone</th><th>E-mail</th></tr></thead>
+          <tbody id="preview-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======= SOLICITAÇÕES ======= -->
+  <div class="page" id="page-solicitacoes">
+    <div class="page-title">Minhas Solicitações</div>
+    <div class="page-sub">Arquivos gerados — aguarde o processamento e baixe o CSV</div>
+
+    <div style="display:flex;gap:10px;margin-bottom:20px">
+      <button class="btn btn-primary" onclick="listarSolicitacoes()">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582M20 20v-5h-.581M5.634 9A9 9 0 0 1 20 15M18.366 15A9 9 0 0 1 4 9"/>
+        </svg> Atualizar lista
+      </button>
+    </div>
+
+    <div id="alert-sol"></div>
+
+    <div class="card">
+      <div id="sol-body">
+        <div style="text-align:center;color:#334155;padding:30px 0">
+          Clique em "Atualizar lista" para carregar as solicitações.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======= USUÁRIOS ======= -->
+  <div class="page" id="page-usuarios">
+    <div class="page-title">Gerenciar Usuários</div>
+    <div class="page-sub">Adicione ou remova acessos ao sistema</div>
+
+    <div class="card">
+      <div class="card-title">Novo usuário</div>
+      <div class="grid3">
+        <div class="field">
+          <label class="lbl">Usuário</label>
+          <input class="inp" id="nu-user" placeholder="nome_usuario">
+        </div>
+        <div class="field">
+          <label class="lbl">Senha</label>
+          <input class="inp" id="nu-senha" type="password" placeholder="••••••••">
+        </div>
+        <div class="field">
+          <label class="lbl">Perfil</label>
+          <select class="inp" id="nu-admin">
+            <option value="0">Operador</option>
+            <option value="1">Admin</option>
+          </select>
+        </div>
+      </div>
+      <div id="alert-nu"></div>
+      <button class="btn btn-primary" onclick="criarUsuario()">Criar usuário</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Usuários cadastrados</div>
+      <div id="alert-user"></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>Usuário</th><th>Perfil</th><th>Nova senha</th><th>Ações</th></tr></thead>
+          <tbody id="user-body"><tr><td colspan="5" style="text-align:center;color:#334155">Carregando...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======= CONFIGURAÇÕES ======= -->
+  <div class="page" id="page-configuracoes">
+    <div class="page-title">Configurações</div>
+    <div class="page-sub">Gerencie a API KEY e teste a conexão com Casa dos Dados</div>
+
+    <div class="stat-grid" id="cfg-stats">
+      <div class="stat-card"><div class="stat-label">Status API</div><div class="stat-val" id="cfg-status-api">—</div></div>
+      <div class="stat-card"><div class="stat-label">Saldo</div><div class="stat-val blue" id="cfg-saldo">—</div></div>
+      <div class="stat-card"><div class="stat-label">API KEY</div><div class="stat-val" id="cfg-key-status">—</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">API KEY — Casa dos Dados</div>
+      <div id="alert-cfg"></div>
+      <div class="api-test-row">
+        <input class="inp" id="cfg-key-input" type="password" placeholder="Cole sua API KEY aqui" style="flex:1">
+        <button class="btn btn-primary" onclick="salvarKey()">Salvar</button>
+        <button class="btn btn-secondary" onclick="verKey()">Ver KEY</button>
+        <button class="btn btn-secondary" onclick="testarConexao()">Testar conexão</button>
+      </div>
+      <div id="cfg-key-msg" style="margin-top:10px;font-size:13px;color:#64748b"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Diagnóstico rápido</div>
+      <button class="btn btn-secondary" onclick="diagnostico()" style="margin-bottom:16px">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"/>
+        </svg> Rodar diagnóstico
+      </button>
+      <div id="diag-body"></div>
+    </div>
+  </div>
+
+  <!-- ======= LOGS ======= -->
+  <div class="page" id="page-logs">
+    <div class="page-title">Logs & Painel de Erros</div>
+    <div class="page-sub">Rastreie todas as operações e identifique problemas facilmente</div>
+
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-label">Total de logs</div><div class="stat-val" id="log-count">0</div></div>
+      <div class="stat-card"><div class="stat-label">Erros</div><div class="stat-val red" id="log-errors">0</div></div>
+      <div class="stat-card"><div class="stat-label">Avisos</div><div class="stat-val amber" id="log-warns">0</div></div>
+      <div class="stat-card"><div class="stat-label">Info</div><div class="stat-val blue" id="log-infos">0</div></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div class="log-filters">
+          <button class="log-filter-btn on" id="f-ALL" onclick="setFiltro('ALL')">Todos</button>
+          <button class="log-filter-btn" id="f-ERROR" onclick="setFiltro('ERROR')">Erros</button>
+          <button class="log-filter-btn" id="f-WARN" onclick="setFiltro('WARN')">Avisos</button>
+          <button class="log-filter-btn" id="f-INFO" onclick="setFiltro('INFO')">Info</button>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-secondary btn-sm" onclick="carregarLogs()">Atualizar</button>
+          <button class="btn btn-danger btn-sm" onclick="limparLogs()">Limpar</button>
+        </div>
+      </div>
+      <div class="log-panel" id="log-panel">
+        <div class="log-empty">Nenhum log ainda. Realize uma operação.</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
 
 <script>
+// =========================================================
+// STATE
+// =========================================================
+let isAdmin = false;
+let logFiltro = 'ALL';
+let allLogs = [];
 
-// ---- uteis ----
-
-function filtros(){
-  return {
-    cnae:          document.getElementById('cnae').value,
-    situacao:      document.getElementById('situacao').value,
-    ufs:           document.getElementById('ufs').value,
-    municipios:    document.getElementById('municipios').value,
-    ultimos_dias:  document.getElementById('ultimos_dias').value,
-    total_linhas:  document.getElementById('total_linhas').value,
-    nome:          document.getElementById('nome').value,
-    somente_mei:   document.getElementById('somente_mei').checked,
-    com_telefone:  document.getElementById('com_telefone').checked,
-    com_email:     document.getElementById('com_email').checked,
-  };
-}
-
-function log(txt){
-  const el = document.getElementById('log');
-  el.classList.add('show');
-  el.textContent = txt;
-}
-
-function appendLog(txt){
-  const el = document.getElementById('log');
-  el.classList.add('show');
-  el.textContent += txt + '\\n';
-}
-
-// ---- init ----
-
-(async()=>{
+// =========================================================
+// INIT
+// =========================================================
+(async ()=>{
   const r = await fetch('/api/eu');
-  if(!r.ok) return;
+  if(!r.ok){ location.reload(); return; }
   const d = await r.json();
-  if(d.is_admin) document.getElementById('admin_card').style.display='block';
+  isAdmin = d.is_admin;
+  document.getElementById('user-name').textContent = d.username;
+  document.getElementById('user-av').textContent = d.username[0].toUpperCase();
+  if(isAdmin){
+    document.getElementById('admin-section').style.display='block';
+    ['nb-usuarios','nb-configuracoes','nb-logs'].forEach(id=>{
+      document.getElementById(id).style.display='flex';
+    });
+    carregarUsuarios();
+    carregarCfgStats();
+  }
   carregarSaldo();
 })();
 
-// ---- saldo ----
-
-async function carregarSaldo(){
-  const r = await fetch('/api/saldo',{method:'POST'});
-  const d = await r.json();
-  const el = document.getElementById('saldo_txt');
-  if(d.ok && d.dados){
-    const s = d.dados;
-    el.textContent = `Saldo: ${s.saldo ?? s.creditos ?? JSON.stringify(s)}`;
-  } else {
-    el.textContent = 'Saldo indisponível';
-  }
+// =========================================================
+// NAV
+// =========================================================
+function goto(page){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');
+  document.getElementById('nb-'+page).classList.add('active');
+  if(page==='solicitacoes') listarSolicitacoes();
+  if(page==='logs') carregarLogs();
 }
 
-// ---- logout ----
+// =========================================================
+// ALERTS
+// =========================================================
+function showAlert(id, type, msg){
+  const t = {ok:'alert-ok',info:'alert-info',warn:'alert-warn',error:'alert-error'};
+  document.getElementById(id).innerHTML =
+    `<div class="alert ${t[type]||'alert-info'}">${msg}</div>`;
+}
+function clearAlert(id){ document.getElementById(id).innerHTML=''; }
 
+// =========================================================
+// LOGOUT / SALDO
+// =========================================================
 async function logout(){
   await fetch('/api/logout',{method:'POST'});
   location.reload();
 }
 
-// ---- prévia ----
-
-async function previa(){
-  log('Buscando prévia...');
-  document.getElementById('previa_div').innerHTML='';
-  const r = await fetch('/api/previa',{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(filtros())});
+async function carregarSaldo(){
+  const r = await fetch('/api/saldo',{method:'POST'});
   const d = await r.json();
-  if(!d.ok){ log('❌ ' + (d.msg||'Erro')); return; }
-
-  const registros = d.dados?.cnpjs || d.dados?.data || d.dados || [];
-  if(!registros.length){ log('Nenhum registro encontrado.'); return; }
-
-  let h = '<table><tr><th>CNPJ</th><th>Razão Social</th><th>Município</th><th>UF</th></tr>';
-  registros.slice(0,10).forEach(e=>{
-    h += `<tr><td>${e.cnpj||''}</td><td>${e.razao_social||''}</td>
-          <td>${e.municipio||''}</td><td>${e.uf||''}</td></tr>`;
-  });
-  h += '</table>';
-  document.getElementById('previa_div').innerHTML = h;
-  log(`✅ ${registros.length} registro(s) exibido(s).`);
+  const el = document.getElementById('saldo-val');
+  if(d.ok && d.dados){
+    const s = d.dados;
+    const val = s.saldo ?? s.creditos ?? s.total ?? JSON.stringify(s);
+    el.textContent = typeof val === 'number' ? val.toLocaleString('pt-BR') : val;
+  } else { el.textContent = 'Indisponível'; }
 }
 
-// ---- captar ----
+// =========================================================
+// FILTROS CAPTAÇÃO
+// =========================================================
+function filtros(){
+  return {
+    cnae:         document.getElementById('cnae').value,
+    situacao:     document.getElementById('situacao').value,
+    ufs:          document.getElementById('ufs').value,
+    municipios:   document.getElementById('municipios').value,
+    ultimos_dias: document.getElementById('ultimos_dias').value,
+    total_linhas: document.getElementById('total_linhas').value,
+    nome:         document.getElementById('nome').value || 'captacao',
+    somente_mei:  document.getElementById('somente_mei').checked,
+    com_telefone: document.getElementById('com_telefone').checked,
+    com_email:    document.getElementById('com_email').checked,
+  };
+}
 
-async function captar(){
-  log('Enviando solicitação...');
-  const r = await fetch('/api/captar',{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(filtros())});
+// =========================================================
+// PRÉVIA
+// =========================================================
+async function previa(){
+  clearAlert('alert-captacao');
+  document.getElementById('preview-card').style.display='none';
+  showAlert('alert-captacao','info','Buscando prévia...');
+  const r = await fetch('/api/previa',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(filtros())});
   const d = await r.json();
-  if(d.log) d.log.forEach(l => appendLog(l));
+  if(!d.ok){ showAlert('alert-captacao','error','Erro: '+(d.msg||'Desconhecido')); return; }
+  const lista = d.dados?.cnpjs || d.dados?.data || [];
+  if(!lista.length){ showAlert('alert-captacao','warn','Nenhum registro encontrado para esses filtros.'); return; }
+  const tbody = document.getElementById('preview-body');
+  tbody.innerHTML = lista.slice(0,10).map(e=>`
+    <tr>
+      <td>${e.cnpj||'—'}</td>
+      <td>${e.razao_social||'—'}</td>
+      <td>${e.municipio||'—'}</td>
+      <td>${(e.uf||'').toUpperCase()||'—'}</td>
+      <td>${e.telefone_1||e.ddd_telefone_1||'—'}</td>
+      <td>${e.email||'—'}</td>
+    </tr>`).join('');
+  document.getElementById('preview-card').style.display='block';
+  clearAlert('alert-captacao');
+  showAlert('alert-captacao','ok',`${lista.length} registro(s) retornados na prévia.`);
+}
+
+// =========================================================
+// CAPTAR
+// =========================================================
+async function captar(){
+  clearAlert('alert-captacao');
+  showAlert('alert-captacao','info','Enviando solicitação para Casa dos Dados...');
+  const r = await fetch('/api/captar',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(filtros())});
+  const d = await r.json();
   if(d.ok){
-    appendLog('✅ Arquivo solicitado. UUID: ' + d.uuid);
-    appendLog('Aguarde alguns minutos e clique em "Atualizar lista".');
+    showAlert('alert-captacao','ok',
+      `Arquivo solicitado com sucesso!<br><small style="opacity:.7">UUID: ${d.uuid}</small><br>
+       <small>Aguarde alguns minutos e consulte a aba <b>Solicitações</b>.</small>`);
   } else {
-    appendLog('❌ ' + (d.msg||'Erro'));
+    showAlert('alert-captacao','error','Falha: '+(d.msg||'Erro desconhecido'));
   }
 }
 
-// ---- listar solicitações ----
-
+// =========================================================
+// SOLICITAÇÕES
+// =========================================================
 async function listarSolicitacoes(){
-  const div = document.getElementById('solicitacoes_div');
-  div.textContent = 'Carregando...';
+  clearAlert('alert-sol');
+  const container = document.getElementById('sol-body');
+  container.innerHTML = '<div style="text-align:center;color:#334155;padding:30px 0">Carregando...</div>';
   const r = await fetch('/api/solicitacoes');
   const d = await r.json();
-  if(!d.ok){ div.textContent = '❌ ' + (d.msg||'Erro'); return; }
-
+  if(!d.ok){
+    showAlert('alert-sol','error','Erro ao listar: '+(d.msg||''));
+    container.innerHTML='';
+    return;
+  }
   const lista = d.dados?.arquivos || d.dados?.data || d.dados || [];
-  if(!lista.length){ div.textContent = 'Nenhuma solicitação encontrada.'; return; }
-
-  let h = `<table>
-    <tr><th>Nome</th><th>Status</th><th>Criado em</th><th>Linhas</th><th>Ação</th></tr>`;
-  lista.forEach(a=>{
-    const uuid   = a.uuid || a.id || '';
-    const nome   = a.nome || a.name || uuid;
-    const status = (a.status||'').toLowerCase();
-    const linhas = a.total_linhas ?? a.linhas ?? '—';
-    const criado = a.criado_em || a.created_at || '—';
-
-    let tagClass = status.includes('conclu') || status.includes('pronto') || status==='done'
-                   ? 'pronto' : status.includes('erro') ? 'erro' : 'proc';
-
-    let acao = '—';
-    if(tagClass==='pronto'){
-      acao = `<a class="dl" href="/api/baixar-solicitacao/${uuid}" target="_blank">⬇ Baixar</a>`;
-    } else if(tagClass==='proc'){
-      acao = `<span style="color:#9ca3af">Processando...</span>`;
-    }
-
-    h += `<tr>
+  if(!Array.isArray(lista)||!lista.length){
+    container.innerHTML='<div style="text-align:center;color:#334155;padding:30px 0">Nenhuma solicitação encontrada.</div>';
+    return;
+  }
+  const statusBadge = s => {
+    const sl = (s||'').toLowerCase();
+    if(sl.includes('conclu')||sl.includes('pronto')||sl==='done'||sl==='completed')
+      return `<span class="badge badge-green">${s}</span>`;
+    if(sl.includes('erro')||sl.includes('fail'))
+      return `<span class="badge badge-red">${s}</span>`;
+    if(sl.includes('proc')||sl.includes('pend')||sl.includes('queue'))
+      return `<span class="badge badge-amber">${s}</span>`;
+    return `<span class="badge badge-gray">${s||'?'}</span>`;
+  };
+  const rows = lista.map(a=>{
+    const uuid = a.uuid||a.id||'';
+    const nome = a.nome||a.name||uuid.slice(0,8);
+    const st = a.status||'';
+    const sl = st.toLowerCase();
+    const pronto = sl.includes('conclu')||sl.includes('pronto')||sl==='done'||sl==='completed';
+    const acao = pronto
+      ? `<a class="dl-link" href="/api/baixar-solicitacao/${uuid}" target="_blank">&#11015; Baixar CSV</a>`
+      : `<span style="color:#334155;font-size:12px">Aguardando...</span>`;
+    return `<tr>
       <td>${nome}</td>
-      <td><span class="tag ${tagClass}">${status||'?'}</span></td>
-      <td>${criado}</td>
-      <td>${linhas}</td>
+      <td>${statusBadge(st)}</td>
+      <td style="font-size:12px;color:#475569">${a.criado_em||a.created_at||'—'}</td>
+      <td style="font-size:12px">${a.total_linhas??a.linhas??'—'}</td>
       <td>${acao}</td>
     </tr>`;
-  });
-  h += '</table>';
-  div.innerHTML = h;
+  }).join('');
+  container.innerHTML = `
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Nome</th><th>Status</th><th>Criado em</th><th>Linhas</th><th>Download</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
-// ---- admin ----
+// =========================================================
+// USUÁRIOS
+// =========================================================
+async function carregarUsuarios(){
+  const r = await fetch('/api/admin/usuarios');
+  const d = await r.json();
+  if(!d.ok) return;
+  const tbody = document.getElementById('user-body');
+  tbody.innerHTML = d.usuarios.map(u=>`
+    <tr>
+      <td>${u.id}</td>
+      <td><b>${u.username}</b></td>
+      <td>${u.is_admin?'<span class="badge badge-blue">Admin</span>':'<span class="badge badge-gray">Operador</span>'}</td>
+      <td><input class="inp" id="pw-${u.id}" type="password" placeholder="Nova senha" style="max-width:160px">
+          <button class="btn btn-secondary btn-sm" style="margin-left:6px" onclick="alterarSenha(${u.id})">Salvar</button></td>
+      <td>${u.username==='admin'?'<span style="color:#334155;font-size:12px">protegido</span>':
+        `<button class="btn btn-danger btn-sm" onclick="removerUsuario(${u.id},'${u.username}')">Remover</button>`}</td>
+    </tr>`).join('');
+}
+
+async function criarUsuario(){
+  clearAlert('alert-nu');
+  const username = document.getElementById('nu-user').value.trim();
+  const senha    = document.getElementById('nu-senha').value;
+  const is_admin = document.getElementById('nu-admin').value === '1';
+  if(!username||!senha){ showAlert('alert-nu','warn','Preencha usuário e senha.'); return; }
+  const r = await fetch('/api/admin/usuarios',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({username,senha,is_admin})});
+  const d = await r.json();
+  if(d.ok){
+    showAlert('alert-nu','ok','Usuário criado!');
+    document.getElementById('nu-user').value='';
+    document.getElementById('nu-senha').value='';
+    carregarUsuarios();
+  } else { showAlert('alert-nu','error',d.msg); }
+}
+
+async function removerUsuario(id, nome){
+  if(!confirm(`Remover usuário "${nome}"?`)) return;
+  const r = await fetch(`/api/admin/usuarios/${id}`,{method:'DELETE'});
+  const d = await r.json();
+  if(d.ok) carregarUsuarios();
+  else showAlert('alert-user','error',d.msg);
+}
+
+async function alterarSenha(id){
+  const senha = document.getElementById('pw-'+id).value;
+  if(!senha){ showAlert('alert-user','warn','Digite a nova senha.'); return; }
+  const r = await fetch(`/api/admin/usuarios/${id}/senha`,{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({senha})});
+  const d = await r.json();
+  if(d.ok) showAlert('alert-user','ok','Senha alterada!');
+  else showAlert('alert-user','error',d.msg);
+}
+
+// =========================================================
+// CONFIGURAÇÕES
+// =========================================================
+async function carregarCfgStats(){
+  const r = await fetch('/api/saldo',{method:'POST'});
+  const d = await r.json();
+  const stEl = document.getElementById('cfg-status-api');
+  const sdEl = document.getElementById('cfg-saldo');
+  if(d.ok){
+    stEl.textContent='Online'; stEl.className='stat-val green';
+    const s=d.dados; sdEl.textContent = s.saldo??s.creditos??'OK';
+  } else {
+    stEl.textContent='Offline'; stEl.className='stat-val red';
+    sdEl.textContent='—';
+  }
+  const kr = await fetch('/api/admin/apikey');
+  const kd = await kr.json();
+  const kEl = document.getElementById('cfg-key-status');
+  if(kd.api_key){ kEl.textContent='Configurada'; kEl.className='stat-val green'; }
+  else { kEl.textContent='Ausente'; kEl.className='stat-val red'; }
+}
 
 async function salvarKey(){
-  const v = document.getElementById('apikey_input').value.trim();
-  if(!v){ document.getElementById('key_msg').textContent='⚠️ Informe a chave.'; return; }
+  const v = document.getElementById('cfg-key-input').value.trim();
+  if(!v){ showAlert('alert-cfg','warn','Informe a chave.'); return; }
   const r = await fetch('/api/admin/apikey',{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({api_key:v})});
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({api_key:v})});
   const d = await r.json();
-  document.getElementById('key_msg').textContent = d.ok ? '✅ Salvo!' : '❌ ' + d.msg;
+  if(d.ok){ showAlert('alert-cfg','ok','API KEY salva com sucesso!'); carregarCfgStats(); }
+  else showAlert('alert-cfg','error',d.msg);
 }
 
 async function verKey(){
   const r = await fetch('/api/admin/apikey');
   const d = await r.json();
-  const k = d.api_key;
-  document.getElementById('key_msg').textContent =
-    k ? `KEY atual: ${k.slice(0,6)}${'*'.repeat(Math.max(0,k.length-6))}` : 'Nenhuma KEY salva.';
+  const msg = document.getElementById('cfg-key-msg');
+  if(d.api_key){
+    const k = d.api_key;
+    msg.textContent = 'KEY: ' + k.slice(0,8) + '*'.repeat(Math.max(0,k.length-8));
+  } else { msg.textContent = 'Nenhuma KEY salva.'; }
 }
 
+async function testarConexao(){
+  clearAlert('alert-cfg');
+  showAlert('alert-cfg','info','Testando conexão com a API...');
+  const r = await fetch('/api/saldo',{method:'POST'});
+  const d = await r.json();
+  if(d.ok){
+    showAlert('alert-cfg','ok','Conexão OK! API respondendo normalmente.');
+  } else {
+    showAlert('alert-cfg','error','Falha na conexão: '+(d.msg||`HTTP ${d.status||'?'}`));
+  }
+  carregarCfgStats();
+}
+
+async function diagnostico(){
+  const div = document.getElementById('diag-body');
+  div.innerHTML = '<div style="color:#475569;font-size:13px">Rodando diagnóstico...</div>';
+  const checks = [];
+
+  // 1. API KEY presente?
+  const kr = await fetch('/api/admin/apikey');
+  const kd = await kr.json();
+  checks.push({
+    ok: !!kd.api_key,
+    label: 'API KEY configurada',
+    detalhe: kd.api_key ? 'Chave encontrada no banco.' : 'Nenhuma API KEY salva. Configure em Configurações.'
+  });
+
+  // 2. Conexão com saldo
+  let saldoOk = false, saldoDetalhe = '';
+  try {
+    const sr = await fetch('/api/saldo',{method:'POST'});
+    const sd = await sr.json();
+    saldoOk = sd.ok;
+    saldoDetalhe = sd.ok ? 'API respondeu com status 200.' : (sd.msg||`HTTP ${sd.status}`);
+  } catch(e){ saldoDetalhe = String(e); }
+  checks.push({ ok: saldoOk, label: 'Conexão com Casa dos Dados (saldo)', detalhe: saldoDetalhe });
+
+  // 3. Endpoint CNPJ pesquisa
+  let pesqOk = false, pesqDetalhe = '';
+  try {
+    const pr = await fetch('/api/previa',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({cnae:'6920601',situacao:'ATIVA'})});
+    const pd = await pr.json();
+    pesqOk = pd.ok;
+    pesqDetalhe = pd.ok ? 'Endpoint de pesquisa respondeu OK.' : (pd.msg||'Erro desconhecido');
+  } catch(e){ pesqDetalhe = String(e); }
+  checks.push({ ok: pesqOk, label: 'Endpoint de pesquisa CNPJ', detalhe: pesqDetalhe });
+
+  div.innerHTML = checks.map(c=>`
+    <div class="alert ${c.ok?'alert-ok':'alert-error'}" style="margin-bottom:8px">
+      <span style="font-size:16px">${c.ok?'✓':'✗'}</span>
+      <div>
+        <b>${c.label}</b><br>
+        <span style="font-size:12px;opacity:.8">${c.detalhe}</span>
+      </div>
+    </div>`).join('');
+}
+
+// =========================================================
+// LOGS
+// =========================================================
+async function carregarLogs(){
+  const r = await fetch('/api/admin/logs');
+  const d = await r.json();
+  allLogs = d.logs || [];
+  renderLogs();
+  document.getElementById('log-count').textContent = allLogs.length;
+  document.getElementById('log-errors').textContent = allLogs.filter(l=>l.level==='ERROR').length;
+  document.getElementById('log-warns').textContent  = allLogs.filter(l=>l.level==='WARN').length;
+  document.getElementById('log-infos').textContent  = allLogs.filter(l=>l.level==='INFO').length;
+}
+
+function renderLogs(){
+  const panel = document.getElementById('log-panel');
+  const filtrado = logFiltro==='ALL' ? allLogs : allLogs.filter(l=>l.level===logFiltro);
+  if(!filtrado.length){
+    panel.innerHTML='<div class="log-empty">Nenhum log para este filtro.</div>';
+    return;
+  }
+  panel.innerHTML = [...filtrado].reverse().map(l=>`
+    <div class="log-row">
+      <span class="log-ts">${l.ts}</span>
+      <span class="log-lv ${l.level}">${l.level}</span>
+      <span class="log-orig">${l.origem}</span>
+      <div style="flex:1">
+        <div class="log-msg">${l.msg}</div>
+        ${l.detalhe?`<div class="log-det">${l.detalhe}</div>`:''}
+      </div>
+    </div>`).join('');
+}
+
+function setFiltro(f){
+  logFiltro=f;
+  ['ALL','ERROR','WARN','INFO'].forEach(x=>{
+    document.getElementById('f-'+x).classList.toggle('on',x===f);
+  });
+  renderLogs();
+}
+
+async function limparLogs(){
+  if(!confirm('Limpar todos os logs?')) return;
+  await fetch('/api/admin/logs',{method:'DELETE'});
+  allLogs=[];
+  renderLogs();
+  document.getElementById('log-count').textContent='0';
+  document.getElementById('log-errors').textContent='0';
+  document.getElementById('log-warns').textContent='0';
+  document.getElementById('log-infos').textContent='0';
+}
 </script>
 </body>
 </html>"""
 
-
 # =========================================================
-# ROUTES
+# ROUTES — AUTH
 # =========================================================
 
 @app.route("/")
@@ -539,43 +992,82 @@ def index():
         return Response(HTML_LOGIN, content_type="text/html; charset=utf-8")
     return Response(HTML_APP, content_type="text/html; charset=utf-8")
 
-
 @app.route("/favicon.ico")
 def favicon():
     return "", 204
 
-
-# ---- auth ----
-
 @app.route("/api/login", methods=["POST"])
 def api_login():
     d = request.json or {}
-    u = auth(d.get("username", "").strip(), d.get("senha", ""))
+    u = autenticar(d.get("username","").strip(), d.get("senha",""))
     if not u:
+        add_log("WARN", "login", f"Tentativa falha: {d.get('username','')}")
         return jsonify({"ok": False, "msg": "Usuário ou senha incorretos."})
     session["uid"]      = u["id"]
     session["username"] = u["username"]
     session["is_admin"] = u["is_admin"]
+    add_log("INFO", "login", f"Login: {u['username']}")
     return jsonify({"ok": True, "is_admin": u["is_admin"]})
-
 
 @app.route("/api/logout", methods=["POST"])
 def api_logout():
+    add_log("INFO", "login", f"Logout: {session.get('username','?')}")
     session.clear()
     return jsonify({"ok": True})
-
 
 @app.route("/api/eu")
 @login_required
 def api_eu():
-    return jsonify({
-        "ok": True,
-        "username": session["username"],
-        "is_admin": session["is_admin"],
-    })
+    return jsonify({"ok": True, "username": session["username"], "is_admin": session["is_admin"]})
 
+# =========================================================
+# ROUTES — ADMIN USUÁRIOS
+# =========================================================
 
-# ---- admin ----
+@app.route("/api/admin/usuarios", methods=["GET"])
+@login_required
+@admin_required
+def admin_get_usuarios():
+    return jsonify({"ok": True, "usuarios": listar_usuarios()})
+
+@app.route("/api/admin/usuarios", methods=["POST"])
+@login_required
+@admin_required
+def admin_criar_usuario():
+    d = request.json or {}
+    ok, msg = criar_usuario(d.get("username",""), d.get("senha",""), d.get("is_admin", False))
+    if ok:
+        add_log("INFO", "usuarios", f"Usuário criado: {d.get('username')}")
+    else:
+        add_log("WARN", "usuarios", f"Falha ao criar usuário: {d.get('username')}", msg)
+    return jsonify({"ok": ok, "msg": msg})
+
+@app.route("/api/admin/usuarios/<int:uid>", methods=["DELETE"])
+@login_required
+@admin_required
+def admin_remover_usuario(uid):
+    ok, msg = remover_usuario(uid)
+    if ok:
+        add_log("INFO", "usuarios", f"Usuário removido: id={uid}")
+    else:
+        add_log("WARN", "usuarios", f"Falha ao remover id={uid}", msg)
+    return jsonify({"ok": ok, "msg": msg})
+
+@app.route("/api/admin/usuarios/<int:uid>/senha", methods=["PUT"])
+@login_required
+@admin_required
+def admin_alterar_senha(uid):
+    d = request.json or {}
+    ok, msg = alterar_senha(uid, d.get("senha",""))
+    if ok:
+        add_log("INFO", "usuarios", f"Senha alterada: id={uid}")
+    else:
+        add_log("WARN", "usuarios", f"Falha ao alterar senha id={uid}", msg)
+    return jsonify({"ok": ok, "msg": msg})
+
+# =========================================================
+# ROUTES — ADMIN API KEY
+# =========================================================
 
 @app.route("/api/admin/apikey", methods=["GET"])
 @login_required
@@ -583,170 +1075,194 @@ def api_eu():
 def admin_get_key():
     return jsonify({"ok": True, "api_key": get_api_key()})
 
-
 @app.route("/api/admin/apikey", methods=["POST"])
 @login_required
 @admin_required
 def admin_set_key():
     d = request.json or {}
-    key = d.get("api_key", "").strip()
+    key = d.get("api_key","").strip()
     if not key:
         return jsonify({"ok": False, "msg": "Informe a chave."})
     set_api_key(key)
+    add_log("INFO", "config", "API KEY atualizada pelo admin")
     return jsonify({"ok": True})
 
+# =========================================================
+# ROUTES — LOGS
+# =========================================================
 
-# ---- saldo ----
+@app.route("/api/admin/logs")
+@login_required
+@admin_required
+def admin_get_logs():
+    return jsonify({"ok": True, "logs": _LOGS})
+
+@app.route("/api/admin/logs", methods=["DELETE"])
+@login_required
+@admin_required
+def admin_clear_logs():
+    _LOGS.clear()
+    return jsonify({"ok": True})
+
+# =========================================================
+# ROUTES — SALDO
+# =========================================================
 
 @app.route("/api/saldo", methods=["POST"])
 @login_required
 def api_saldo():
     key = get_api_key()
     if not key:
+        add_log("WARN", "saldo", "API KEY não configurada")
         return jsonify({"ok": False, "msg": "API KEY não configurada."})
     try:
-        r = requests.get(ENDPOINT_SALDO, headers=_headers(key), timeout=20)
-        return jsonify({"ok": r.status_code == 200, "status": r.status_code, "dados": r.json()})
+        r = requests.get(ENDPOINT_SALDO, headers=_h(key), timeout=20)
+        ok = r.status_code == 200
+        if not ok:
+            add_log("ERROR", "saldo", f"HTTP {r.status_code}", r.text[:200])
+        return jsonify({"ok": ok, "status": r.status_code, "dados": r.json()})
     except Exception as e:
+        add_log("ERROR", "saldo", "Exceção ao consultar saldo", str(e))
         return jsonify({"ok": False, "msg": str(e)})
 
-
-# ---- prévia ----
+# =========================================================
+# ROUTES — PRÉVIA
+# =========================================================
 
 @app.route("/api/previa", methods=["POST"])
 @login_required
 def api_previa():
     key = get_api_key()
     if not key:
+        add_log("WARN", "previa", "API KEY não configurada")
         return jsonify({"ok": False, "msg": "Configure a API KEY."})
     d = request.json or {}
     pesquisa = montar_pesquisa(d)
+    add_log("INFO", "previa", f"Prévia solicitada por {session.get('username')}", str(pesquisa)[:200])
     try:
-        r = requests.post(ENDPOINT_PESQUISA, json=pesquisa, headers=_headers(key), timeout=30)
-        return jsonify({"ok": r.status_code == 200, "dados": r.json()})
+        r = requests.post(ENDPOINT_PESQUISA, json=pesquisa, headers=_h(key), timeout=30)
+        ok = r.status_code == 200
+        if not ok:
+            add_log("ERROR", "previa", f"HTTP {r.status_code}", r.text[:300])
+        return jsonify({"ok": ok, "dados": r.json()})
     except Exception as e:
+        add_log("ERROR", "previa", "Exceção na prévia", str(e))
         return jsonify({"ok": False, "msg": str(e)})
 
-
-# ---- captar ----
+# =========================================================
+# ROUTES — CAPTAR
+# =========================================================
 
 @app.route("/api/captar", methods=["POST"])
 @login_required
 def api_captar():
     key = get_api_key()
     if not key:
+        add_log("WARN", "captar", "API KEY não configurada")
         return jsonify({"ok": False, "msg": "Configure a API KEY."})
     d = request.json or {}
-    msgs = []
-
     payload = {
         "total_linhas": 0,
         "nome": d.get("nome", "captacao"),
         "tipo": "csv",
         "pesquisa": montar_pesquisa(d),
     }
-
-    msgs.append("📤 Enviando solicitação...")
-
+    msgs = []
+    add_log("INFO", "captar", f"Captação iniciada por {session.get('username')}", str(payload.get('pesquisa',''))[:200])
     try:
-        r = requests.post(ENDPOINT_GERAR, json=payload, headers=_headers(key), timeout=30)
+        r = requests.post(ENDPOINT_GERAR, json=payload, headers=_h(key), timeout=30)
     except requests.exceptions.RequestException as e:
-        msgs.append(f"❌ Erro de conexão: {e}")
+        add_log("ERROR", "captar", "Erro de conexão ao gerar arquivo", str(e))
         return jsonify({"ok": False, "msg": str(e), "log": msgs})
 
     if r.status_code not in (200, 201, 202):
-        msgs.append(f"❌ HTTP {r.status_code}: {r.text[:200]}")
+        add_log("ERROR", "captar", f"HTTP {r.status_code} ao gerar arquivo", r.text[:300])
         return jsonify({"ok": False, "msg": f"HTTP {r.status_code}", "log": msgs})
 
     try:
         body = r.json()
     except Exception:
-        msgs.append("❌ Resposta inválida da API.")
+        add_log("ERROR", "captar", "Resposta inválida da API")
         return jsonify({"ok": False, "msg": "Resposta inválida", "log": msgs})
 
     uuid = body.get("arquivo_uuid") or body.get("uuid")
     if not uuid:
-        msgs.append(f"❌ UUID não retornado. Resposta: {body}")
+        add_log("ERROR", "captar", "UUID não retornado", str(body)[:200])
         return jsonify({"ok": False, "msg": "UUID não retornado", "log": msgs})
 
-    msgs.append(f"✅ UUID: {uuid}")
+    add_log("INFO", "captar", f"Arquivo gerado com sucesso: {uuid}")
     return jsonify({"ok": True, "uuid": uuid, "log": msgs})
 
-
-# ---- listar solicitações ----
+# =========================================================
+# ROUTES — SOLICITAÇÕES
+# =========================================================
 
 @app.route("/api/solicitacoes")
 @login_required
 def api_solicitacoes():
     key = get_api_key()
     if not key:
+        add_log("WARN", "solicitacoes", "API KEY não configurada")
         return jsonify({"ok": False, "msg": "Configure a API KEY."})
     try:
-        r = requests.get(ENDPOINT_LISTAR, headers=_headers(key), timeout=25)
-        return jsonify({"ok": r.status_code == 200, "dados": r.json()})
+        r = requests.get(ENDPOINT_LISTAR, headers=_h(key), timeout=25)
+        ok = r.status_code == 200
+        if not ok:
+            add_log("ERROR", "solicitacoes", f"HTTP {r.status_code}", r.text[:200])
+        return jsonify({"ok": ok, "dados": r.json()})
     except Exception as e:
+        add_log("ERROR", "solicitacoes", "Exceção ao listar solicitações", str(e))
         return jsonify({"ok": False, "msg": str(e)})
 
-
-# ---- baixar arquivo ----
+# =========================================================
+# ROUTES — BAIXAR
+# =========================================================
 
 @app.route("/api/baixar-solicitacao/<uuid>")
 @login_required
 def baixar(uuid):
-    """
-    Consulta o status do arquivo na API Casa dos Dados.
-    Se tiver link de download, faz proxy do CSV para o navegador
-    (evita problema de CORS / redirect para domínio externo).
-    """
     key = get_api_key()
     if not key:
         return "API KEY não configurada.", 400
-
+    add_log("INFO", "download", f"Download solicitado: {uuid} por {session.get('username')}")
     try:
-        r = requests.get(
-            f"{ENDPOINT_CONSULTAR}/{uuid}",
-            headers=_headers(key),
-            timeout=30,
-        )
+        r = requests.get(f"{ENDPOINT_CONSULTAR}/{uuid}", headers=_h(key), timeout=30)
     except Exception as e:
+        add_log("ERROR", "download", f"Erro ao consultar arquivo {uuid}", str(e))
         return str(e), 500
 
     if r.status_code == 425:
+        add_log("WARN", "download", f"Arquivo ainda processando: {uuid}")
         return "Arquivo ainda processando. Aguarde e tente novamente.", 425
-
     if r.status_code != 200:
-        return f"Erro HTTP {r.status_code} ao consultar arquivo.", r.status_code
+        add_log("ERROR", "download", f"HTTP {r.status_code} ao consultar {uuid}", r.text[:200])
+        return f"Erro HTTP {r.status_code}.", r.status_code
 
     try:
         body = r.json()
     except Exception:
-        return "Resposta inválida da API.", 500
+        return "Resposta inválida.", 500
 
     link = body.get("link") or body.get("url") or body.get("download_url")
-
     if not link:
-        # Arquivo ainda não está pronto
+        add_log("WARN", "download", f"Link não disponível para {uuid} — ainda processando")
         return "Arquivo ainda processando. Aguarde e tente novamente.", 425
 
-    # Faz proxy do arquivo para o cliente (download direto sem redirect externo)
     try:
-        csv_r = requests.get(link, timeout=60, stream=True)
+        csv_r = requests.get(link, timeout=120, stream=True)
         if csv_r.status_code != 200:
-            # Fallback: redireciona para o link externo
+            add_log("WARN", "download", f"Proxy falhou para {uuid}, redirecionando")
             return redirect(link)
-
         filename = f"captacao_{uuid[:8]}.csv"
+        add_log("INFO", "download", f"Proxy download OK: {filename}")
         return Response(
             csv_r.iter_content(chunk_size=8192),
             content_type="text/csv; charset=utf-8",
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"'
-            },
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except Exception:
-        # Se o proxy falhar, tenta redirect direto
+        add_log("WARN", "download", f"Proxy exception para {uuid}, redirecionando")
         return redirect(link)
-
 
 # =========================================================
 # MAIN
