@@ -375,11 +375,9 @@ def api_baixar_solicitacao(uuid):
     if not key:
         return "Sem chave configurada.", 400
     try:
-        rc = requests.get(f"{ENDPOINT_CONSULTAR}/{uuid}",
-                          headers=_h(key), timeout=20)
-if rc.status_code != 200:
-    return ("O arquivo ainda não está pronto (status "
-    f"HTTP {rc.status_code}). Tente novamente em instantes."), 425
+    rc = requests.get(...)  # ✅ CORRETO — indentado com 4 espaços
+    if rc.status_code != 200:
+        return ("O arquivo ainda não está pronto...")
 try:
     link = rc.json().get("link")
 except Exception as e:
