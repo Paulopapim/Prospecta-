@@ -15,10 +15,15 @@ from flask import (
     redirect
 )
 
-import db
+# =========================================================
+# APP
+# =========================================================
+
+app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 
 # =========================================================
-# CONFIG
+# CONFIG API
 # =========================================================
 
 ENDPOINT_GERAR = "https://api.casadosdados.com.br/v5/cnpj/pesquisa/arquivo"
@@ -27,17 +32,37 @@ ENDPOINT_LISTAR = "https://api.casadosdados.com.br/v4/cnpj/pesquisa/arquivo"
 ENDPOINT_PESQUISA = "https://api.casadosdados.com.br/v5/cnpj/pesquisa"
 ENDPOINT_SALDO = "https://api.casadosdados.com.br/v5/saldo"
 
-app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+# =========================================================
+# BANCO LOCAL SIMPLES
+# =========================================================
 
-db.init_db()
+USUARIOS = [
+    {
+        "id": 1,
+        "username": "admin",
+        "senha": "admin123",
+        "is_admin": True
+    }
+]
+
+API_KEY = os.environ.get("API_KEY", "")
 
 _ARQUIVOS = {}
-
 
 # =========================================================
 # HELPERS
 # =========================================================
+
+def autenticar(username, senha):
+    for u in USUARIOS:
+        if (
+            u["username"] == username
+            and u["senha"] == senha
+        ):
+            return u
+
+    return None
+
 
 def login_obrigatorio(f):
     @wraps(f)
@@ -72,6 +97,16 @@ def _h(key):
         "api-key": key,
         "Content-Type": "application/json"
     }
+
+
+def get_api_key():
+    global API_KEY
+    return API_KEY
+
+
+def set_api_key(v):
+    global API_KEY
+    API_KEY = v
 
 
 def montar_pesquisa(d):
@@ -109,7 +144,7 @@ def montar_pesquisa(d):
                     "ultimos_dias": dias
                 }
 
-        except:
+        except Exception:
             pass
 
     if d.get("somente_mei"):
@@ -134,7 +169,7 @@ def montar_pesquisa(d):
         if 1 <= lim <= 1000:
             p["limite"] = lim
 
-    except:
+    except Exception:
         pass
 
     return p
@@ -148,7 +183,7 @@ def disparar_solicitacao(api_key, nome, pesquisa, log):
         "pesquisa": pesquisa
     }
 
-    log("📤 Enviando solicitação para a Casa dos Dados...")
+    log("📤 Enviando solicitação para Casa dos Dados...")
 
     try:
         r = requests.post(
@@ -159,56 +194,48 @@ def disparar_solicitacao(api_key, nome, pesquisa, log):
         )
 
     except requests.exceptions.RequestException as e:
-        log(f"❌ Erro de conexão: {e}")
-        return None
-
-    if r.status_code == 401:
-        log("❌ Chave inválida (401)")
-        return None
-
-    if r.status_code == 403:
-        log("❌ Sem saldo/permissão (403)")
+        log(f"❌ Erro conexão: {e}")
         return None
 
     if r.status_code not in (200, 201, 202):
-        try:
-            detalhe = r.json()
-
-            detalhe = (
-                detalhe.get("mensagem")
-                or detalhe.get("message")
-                or detalhe.get("detail")
-                or str(detalhe)
-            )
-
-        except:
-            detalhe = r.text[:300]
-
-        log(f"❌ HTTP {r.status_code}: {detalhe}")
+        log(f"❌ HTTP {r.status_code}")
         return None
 
-    uuid = r.json().get("arquivo_uuid")
+    try:
+        body = r.json()
+
+    except Exception:
+        log("❌ Erro JSON")
+        return None
+
+    uuid = body.get("arquivo_uuid")
 
     if not uuid:
-        log("❌ API não retornou identificador.")
+        log("❌ API não retornou UUID")
         return None
 
-    log(f"✅ Solicitação aceita! ID: {uuid}")
+    log(f"✅ Solicitação criada: {uuid}")
 
     return uuid
 
-
 # =========================================================
-# ROTAS
+# INDEX
 # =========================================================
 
 @app.route("/")
 def index():
     return Response(
-        "<h1>Servidor funcionando</h1>",
+        """
+        <h1>Servidor funcionando</h1>
+        <p>Captador CNPJ online</p>
+        """,
         mimetype="text/html"
     )
 
+
+@app.route("/favicon.ico")
+def favicon():
+    return "", 204
 
 # =========================================================
 # LOGIN
@@ -218,7 +245,7 @@ def index():
 def api_login():
     d = request.json or {}
 
-    u = db.autenticar(
+    u = autenticar(
         d.get("username", "").strip(),
         d.get("senha", "")
     )
@@ -254,98 +281,46 @@ def api_eu():
     return jsonify({
         "ok": True,
         "username": session["username"],
-        "is_admin": session["is_admin"],
-        "tem_chave": bool(db.get_api_key())
+        "is_admin": session["is_admin"]
     })
-
 
 # =========================================================
 # ADMIN
 # =========================================================
 
-@app.route("/api/admin/usuarios", methods=["GET"])
+@app.route("/api/admin/usuarios")
 @admin_obrigatorio
-def adm_listar():
+def admin_usuarios():
     return jsonify({
         "ok": True,
-        "usuarios": db.listar_usuarios()
-    })
-
-
-@app.route("/api/admin/usuarios", methods=["POST"])
-@admin_obrigatorio
-def adm_criar():
-    d = request.json or {}
-
-    ok, msg = db.criar_usuario(
-        d.get("username", ""),
-        d.get("senha", ""),
-        bool(d.get("is_admin", False))
-    )
-
-    return jsonify({
-        "ok": ok,
-        "msg": msg
-    })
-
-
-@app.route("/api/admin/usuarios/<int:uid>", methods=["DELETE"])
-@admin_obrigatorio
-def adm_remover(uid):
-    ok, msg = db.remover_usuario(uid)
-
-    return jsonify({
-        "ok": ok,
-        "msg": msg
-    })
-
-
-@app.route("/api/admin/usuarios/<int:uid>/senha", methods=["POST"])
-@admin_obrigatorio
-def adm_senha(uid):
-    ok, msg = db.alterar_senha(
-        uid,
-        (request.json or {}).get("senha", "")
-    )
-
-    return jsonify({
-        "ok": ok,
-        "msg": msg
+        "usuarios": USUARIOS
     })
 
 
 @app.route("/api/admin/apikey", methods=["GET"])
 @admin_obrigatorio
-def adm_get_key():
-    k = db.get_api_key()
-
-    mascarada = ("•" * 8 + k[-4:]) if k else ""
+def admin_get_key():
+    k = get_api_key()
 
     return jsonify({
         "ok": True,
-        "definida": bool(k),
-        "preview": mascarada
+        "api_key": k
     })
 
 
 @app.route("/api/admin/apikey", methods=["POST"])
 @admin_obrigatorio
-def adm_set_key():
-    nova = (request.json or {}).get("api_key", "").strip()
+def admin_set_key():
+    d = request.json or {}
 
-    if not nova:
-        return jsonify({
-            "ok": False,
-            "msg": "Informe a chave."
-        })
-
-    db.set_api_key(nova)
+    set_api_key(
+        d.get("api_key", "").strip()
+    )
 
     return jsonify({
         "ok": True,
-        "msg": "Chave atualizada."
+        "msg": "API KEY atualizada"
     })
-
 
 # =========================================================
 # SALDO
@@ -354,12 +329,12 @@ def adm_set_key():
 @app.route("/api/saldo", methods=["POST"])
 @login_obrigatorio
 def api_saldo():
-    key = db.get_api_key()
+    key = get_api_key()
 
     if not key:
         return jsonify({
             "ok": False,
-            "msg": "Nenhuma chave configurada."
+            "msg": "API KEY não configurada."
         })
 
     try:
@@ -369,35 +344,17 @@ def api_saldo():
             timeout=20
         )
 
-        if r.status_code == 200:
-            return jsonify({
-                "ok": True,
-                "dados": r.json()
-            })
-
-        if r.status_code == 401:
-            return jsonify({
-                "ok": False,
-                "msg": "Chave inválida."
-            })
-
-        if r.status_code == 403:
-            return jsonify({
-                "ok": False,
-                "msg": "Sem saldo."
-            })
-
         return jsonify({
-            "ok": False,
-            "msg": f"Erro HTTP {r.status_code}"
+            "ok": r.status_code == 200,
+            "status": r.status_code,
+            "dados": r.json()
         })
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return jsonify({
             "ok": False,
             "msg": str(e)
         })
-
 
 # =========================================================
 # PRÉVIA
@@ -406,23 +363,15 @@ def api_saldo():
 @app.route("/api/previa", methods=["POST"])
 @login_obrigatorio
 def api_previa():
-    key = db.get_api_key()
+    key = get_api_key()
 
     if not key:
         return jsonify({
             "ok": False,
-            "msg": "Nenhuma chave configurada."
+            "msg": "Configure API KEY."
         })
 
     d = request.json or {}
-
-    if not d.get("cnae", "").strip():
-        return jsonify({
-            "ok": False,
-            "msg": "Informe um CNAE."
-        })
-
-    d["total_linhas"] = 5
 
     pesquisa = montar_pesquisa(d)
 
@@ -434,45 +383,16 @@ def api_previa():
             timeout=30
         )
 
-        if r.status_code not in (200, 201):
-            return jsonify({
-                "ok": False,
-                "msg": f"HTTP {r.status_code}"
-            })
-
-        body = r.json()
-
-        registros = (
-            body.get("cnpjs")
-            or body.get("data")
-            or body.get("empresas")
-            or []
-        )
-
-        amostra = []
-
-        for e in registros[:5]:
-            amostra.append({
-                "cnpj": e.get("cnpj", ""),
-                "razao_social": e.get("razao_social", ""),
-                "municipio": e.get("municipio", ""),
-                "uf": e.get("uf", ""),
-                "telefone": e.get("telefone", ""),
-                "email": e.get("email", "")
-            })
-
         return jsonify({
-            "ok": True,
-            "amostra": amostra,
-            "total": len(registros)
+            "ok": r.status_code == 200,
+            "dados": r.json()
         })
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return jsonify({
             "ok": False,
             "msg": str(e)
         })
-
 
 # =========================================================
 # CAPTAR
@@ -481,27 +401,21 @@ def api_previa():
 @app.route("/api/captar", methods=["POST"])
 @login_obrigatorio
 def api_captar():
-    key = db.get_api_key()
+    key = get_api_key()
 
     if not key:
         return jsonify({
             "ok": False,
-            "msg": "Nenhuma chave configurada."
+            "msg": "Configure API KEY."
         })
 
     d = request.json or {}
-
-    if not d.get("cnae", "").strip():
-        return jsonify({
-            "ok": False,
-            "msg": "Informe um CNAE."
-        })
 
     msgs = []
 
     uuid = disparar_solicitacao(
         api_key=key,
-        nome=d.get("nome", "captacao_cnpj"),
+        nome=d.get("nome", "captacao"),
         pesquisa=montar_pesquisa(d),
         log=msgs.append
     )
@@ -512,20 +426,19 @@ def api_captar():
         "log": msgs
     })
 
-
 # =========================================================
-# LISTAR SOLICITAÇÕES
+# SOLICITAÇÕES
 # =========================================================
 
 @app.route("/api/solicitacoes")
 @login_obrigatorio
 def api_solicitacoes():
-    key = db.get_api_key()
+    key = get_api_key()
 
     if not key:
         return jsonify({
             "ok": False,
-            "msg": "Sem chave."
+            "msg": "Configure API KEY."
         })
 
     try:
@@ -535,43 +448,16 @@ def api_solicitacoes():
             timeout=25
         )
 
-        if r.status_code != 200:
-            return jsonify({
-                "ok": False,
-                "msg": f"HTTP {r.status_code}"
-            })
-
-        itens = r.json()
-
-        if not isinstance(itens, list):
-            itens = itens.get("data", [])
-
-        out = []
-
-        for it in itens[:40]:
-            pq = it.get("pesquisa", {}) or {}
-
-            out.append({
-                "uuid": it.get("arquivo_uuid", ""),
-                "nome": it.get("nome", ""),
-                "status": it.get("status", ""),
-                "quantidade": it.get("quantidade", 0),
-                "cnae": ",".join(
-                    pq.get("codigo_atividade_principal", [])
-                )
-            })
-
         return jsonify({
-            "ok": True,
-            "itens": out
+            "ok": r.status_code == 200,
+            "dados": r.json()
         })
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return jsonify({
             "ok": False,
             "msg": str(e)
         })
-
 
 # =========================================================
 # BAIXAR
@@ -579,41 +465,33 @@ def api_solicitacoes():
 
 @app.route("/api/baixar-solicitacao/<uuid>")
 @login_obrigatorio
-def api_baixar_solicitacao(uuid):
-    key = db.get_api_key()
+def baixar(uuid):
+    key = get_api_key()
 
     if not key:
-        return "Sem chave configurada.", 400
+        return "Sem API KEY", 400
 
     try:
-        rc = requests.get(
+        r = requests.get(
             f"{ENDPOINT_CONSULTAR}/{uuid}",
             headers=_h(key),
             timeout=30
         )
 
-        if rc.status_code != 200:
-            return (
-                "Arquivo ainda não pronto. "
-                f"(HTTP {rc.status_code})"
-            ), 425
+        if r.status_code != 200:
+            return "Arquivo não pronto", 425
 
-        try:
-            dados = rc.json()
+        body = r.json()
 
-        except Exception as e:
-            return f"Erro ao processar JSON: {e}", 502
-
-        link = dados.get("link")
+        link = body.get("link")
 
         if not link:
-            return "Arquivo ainda processando.", 425
+            return "Arquivo processando", 425
 
         return redirect(link)
 
-    except requests.exceptions.RequestException as e:
-        return f"Erro: {e}", 502
-
+    except Exception as e:
+        return str(e), 500
 
 # =========================================================
 # DOWNLOAD LOCAL
@@ -634,25 +512,12 @@ def api_download(chave):
         download_name=a["filename"]
     )
 
-
 # =========================================================
 # MAIN
 # =========================================================
 
 if __name__ == "__main__":
     porta = int(os.environ.get("PORT", 5000))
-
-    import webbrowser
-    import threading
-
-    if porta == 5000:
-        threading.Thread(
-            target=lambda: (
-                time.sleep(1.2),
-                webbrowser.open("http://localhost:5000")
-            ),
-            daemon=True
-        ).start()
 
     app.run(
         host="0.0.0.0",
