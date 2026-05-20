@@ -1,7 +1,8 @@
 import os
 import sqlite3
 
-DB_NAME = "database.db"
+# db.py — linha 3
+DB_NAME = os.environ.get("DB_PATH", "database.db")
 
 
 def get_conn():
@@ -36,14 +37,14 @@ def init_db():
     c.execute("SELECT * FROM usuarios WHERE username = ?", ("admin",))
     existe = c.fetchone()
 
-    if not existe:
-        c.execute("""
-        INSERT INTO usuarios (username, senha, is_admin)
-        VALUES (?, ?, ?)
-        """, ("admin", "admin123", 1))
-
-    conn.commit()
-    conn.close()
+    # Trecho corrigido dentro de init_db
+if not existe:
+    c.execute("""
+    INSERT INTO usuarios (username, senha, is_admin)
+    VALUES (?, ?, ?)
+    """, ("admin", "admin123", 1))
+    conn.commit()  # só um commit, no final
+conn.close()
 
 
 def autenticar(username, senha):
