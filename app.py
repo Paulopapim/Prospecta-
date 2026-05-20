@@ -1185,77 +1185,81 @@ def api_solicitacoes():
 @app.route("/api/baixar-solicitacao/<uuid>")
 @login_required
 def baixar(uuid):
+    """
+    A API Casa dos Dados v4/public retorna o arquivo ZIP diretamente no body
+    (começa com PK — assinatura ZIP). Não há JSON com link — é o binário mesmo.
+    """
     key = get_api_key()
     if not key:
         return "API KEY não configurada.", 400
 
-    add_log("INFO","download",f"Solicitado: {uuid} por {session.get('username')}")
+    add_log("INFO", "download", f"Solicitado: {uuid} por {session.get('username')}")
 
-    # Tenta os dois endpoints possíveis da Casa dos Dados
-    endpoints_consulta = [
-        f"https://api.casadosdados.com.br/v5/cnpj/pesquisa/arquivo/{uuid}",
-        f"https://api.casadosdados.com.br/v4/cnpj/pesquisa/arquivo/{uuid}",
-        f"https://api.casadosdados.com.br/v4/public/cnpj/pesquisa/arquivo/{uuid}",
-    ]
+    url = f"https://api.casadosdados.com.br/v4/public/cnpj/pesquisa/arquivo/{uuid}"
 
-    body = None
-    for url in endpoints_consulta:
-        try:
-            r = requests.get(url, headers=_h(key), timeout=30)
-            add_log("INFO","download",f"Consultou {url} → HTTP {r.status_code}", r.text[:300])
-            if r.status_code == 200:
-                try:
-                    body = r.json()
-                    break
-                except Exception:
-                    add_log("WARN","download",f"Não é JSON em {url}", r.text[:300])
-                    continue
-        except Exception as e:
-            add_log("WARN","download",f"Erro em {url}", str(e))
-            continue
+    try:
+        r = requests.get(url, headers=_h(key), timeout=120, stream=True)
+    except Exception as e:
+        add_log("ERROR", "download", f"Erro de conexão para {uuid}", str(e))
+        return str(e), 500
 
-    if body is None:
-        add_log("ERROR","download",f"Nenhum endpoint retornou JSON válido para {uuid}")
-        return (
-            "Não foi possível obter o link do arquivo. "
-            "Verifique os Logs para detalhes.",
-            500
+    if r.status_code == 425:
+        add_log("WARN", "download", f"Arquivo ainda processando: {uuid}")
+        return "Arquivo ainda processando. Aguarde e tente novamente.", 425
+
+    if r.status_code != 200:
+        add_log("ERROR", "download", f"HTTP {r.status_code} para {uuid}", r.text[:200])
+        return f"Erro HTTP {r.status_code}.", r.status_code
+
+    # Detecta pelo Content-Type ou pelo início do corpo se é ZIP ou JSON
+    content_type = r.headers.get("Content-Type", "")
+    filename_zip = f"captacao_{uuid[:8]}.zip"
+    filename_csv = f"captacao_{uuid[:8]}.csv"
+
+    # Lê os primeiros bytes para identificar o tipo
+    conteudo = r.content  # carrega tudo (arquivos são pequenos em plano gratuito)
+
+    if conteudo[:2] == b"PK":
+        # É um ZIP — entrega direto
+        add_log("INFO", "download", f"ZIP recebido, entregando: {filename_zip}")
+        return Response(
+            conteudo,
+            content_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename_zip}"'},
         )
 
-    # Extrai o link de download — cada versão da API usa um campo diferente
-    link = (
-        body.get("link")
-        or body.get("url")
-        or body.get("download_url")
-        or body.get("arquivo_url")
-        or body.get("file_url")
-    )
-
-    add_log("INFO","download",f"Body recebido para {uuid}", str(body)[:400])
-
-    if not link:
-        add_log("WARN","download",f"Nenhum link encontrado no body para {uuid}")
-        return "Arquivo ainda processando ou link indisponível. Aguarde e tente novamente.", 425
-
-    add_log("INFO","download",f"Link obtido para {uuid}: {link[:80]}")
-
-    # Faz proxy do CSV — evita redirect para domínio externo que pode travar
+    # Tenta interpretar como JSON (pode ter um campo com link)
     try:
-        csv_r = requests.get(link, timeout=120, stream=True)
-        if csv_r.status_code == 200:
-            filename = f"captacao_{uuid[:8]}.csv"
-            add_log("INFO","download",f"Proxy OK → {filename}")
-            return Response(
-                csv_r.iter_content(chunk_size=8192),
-                content_type="text/csv; charset=utf-8",
-                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-            )
-        else:
-            add_log("WARN","download",f"Proxy HTTP {csv_r.status_code}, redirecionando")
+        body = json.loads(conteudo)
+        link = (
+            body.get("link")
+            or body.get("url")
+            or body.get("download_url")
+            or body.get("arquivo_url")
+        )
+        if link:
+            add_log("INFO", "download", f"Link encontrado no JSON: {link[:80]}")
+            csv_r = requests.get(link, timeout=120, stream=True)
+            if csv_r.status_code == 200:
+                return Response(
+                    csv_r.iter_content(chunk_size=8192),
+                    content_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{filename_csv}"'},
+                )
             return redirect(link)
-    except Exception as ex:
-        add_log("WARN","download",f"Proxy exception, redirecionando: {ex}")
-        return redirect(link)
+        else:
+            add_log("WARN", "download", f"JSON sem link para {uuid}", str(body)[:200])
+            return "Arquivo ainda processando. Aguarde e tente novamente.", 425
+    except Exception:
+        pass
+
+    # Se chegou aqui, entrega o conteúdo como CSV mesmo
+    add_log("INFO", "download", f"Entregando conteúdo bruto como CSV: {filename_csv}")
+    return Response(
+        conteudo,
+        content_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename_csv}"'},
+    )
 
 # =========================================================
 # MAIN
