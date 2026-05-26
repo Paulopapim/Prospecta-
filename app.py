@@ -20,6 +20,8 @@ from db import (
     init_db, autenticar, listar_usuarios,
     criar_usuario, remover_usuario, alterar_senha,
     get_api_key, set_api_key,
+    criar_captacao, importar_leads, listar_captacoes,
+    buscar_leads, stats_leads, excluir_captacao, exportar_leads_csv,
 )
 
 # =========================================================
@@ -331,6 +333,12 @@ tr:hover td{background:#0d1626}
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 4H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/>
       </svg> Solicitações
     </button>
+    <button class="nav-btn" onclick="goto('leads')" id="nb-leads">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+        <path stroke-linecap="round" d="M17 21v-8H7v8M7 3v5h8"/>
+      </svg> Leads Salvos
+    </button>
 
     <div class="nav-section" id="admin-section" style="display:none">Admin</div>
     <button class="nav-btn" onclick="goto('usuarios')" id="nb-usuarios" style="display:none">
@@ -531,6 +539,110 @@ tr:hover td{background:#0d1626}
     </div>
   </div>
 
+  <!-- LEADS SALVOS -->
+  <div class="page" id="page-leads">
+    <div class="page-title">Leads Salvos</div>
+    <div class="page-sub">Base de CNPJs persistente — consulte e exporte sem gastar créditos</div>
+
+    <div class="stat-grid" id="leads-stats">
+      <div class="stat-card"><div class="stat-label">Total Leads</div><div class="stat-val blue" id="ls-total">—</div></div>
+      <div class="stat-card"><div class="stat-label">Com E-mail</div><div class="stat-val green" id="ls-email">—</div></div>
+      <div class="stat-card"><div class="stat-label">Com Telefone</div><div class="stat-val green" id="ls-tel">—</div></div>
+      <div class="stat-card"><div class="stat-label">UFs</div><div class="stat-val" id="ls-ufs">—</div></div>
+      <div class="stat-card"><div class="stat-label">Captações</div><div class="stat-val" id="ls-caps">—</div></div>
+    </div>
+
+    <!-- IMPORTAR CSV -->
+    <div class="card">
+      <div class="card-title">Importar CSV</div>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <div class="field" style="margin-bottom:0;flex:1;min-width:200px">
+          <label class="lbl">Nome da importação</label>
+          <input class="inp" id="imp-nome" value="importacao" style="max-width:250px">
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label class="lbl">Arquivo CSV</label>
+          <input type="file" id="imp-file" accept=".csv,.txt" style="font-size:13px;color:#94a3b8">
+        </div>
+        <button class="btn btn-primary" onclick="importarCSV()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M16 6l-4-4-4 4M12 2v13"/>
+          </svg> Importar
+        </button>
+      </div>
+      <div id="alert-imp" style="margin-top:10px"></div>
+    </div>
+
+    <!-- CAPTAÇÕES SALVAS -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div class="card-title" style="margin-bottom:0">Captações Salvas</div>
+        <button class="btn btn-secondary btn-sm" onclick="carregarCaptacoes()">↻ Atualizar</button>
+      </div>
+      <div id="captacoes-body" style="text-align:center;color:#334155;padding:20px 0">
+        Carregando...
+      </div>
+    </div>
+
+    <!-- BUSCAR LEADS -->
+    <div class="card">
+      <div class="card-title">Buscar Leads Salvos</div>
+      <div class="grid3">
+        <div class="field"><label class="lbl">Captação</label>
+          <select class="inp" id="lb-captacao"><option value="">Todas</option></select></div>
+        <div class="field"><label class="lbl">UF</label>
+          <input class="inp" id="lb-uf" placeholder="Ex: SP"></div>
+        <div class="field"><label class="lbl">Município</label>
+          <input class="inp" id="lb-municipio" placeholder="Ex: São Paulo"></div>
+        <div class="field"><label class="lbl">CNAE</label>
+          <input class="inp" id="lb-cnae" placeholder="Ex: 6920601"></div>
+        <div class="field"><label class="lbl">Busca livre (razão, CNPJ, e-mail)</label>
+          <input class="inp" id="lb-termo" placeholder="Buscar..."></div>
+        <div class="field"><label class="lbl">Por página</label>
+          <select class="inp" id="lb-porpag">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+          </select></div>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="lb-email"> Com e-mail</label>
+        <label><input type="checkbox" id="lb-tel"> Com telefone</label>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="buscarLeads(1)">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8"/><path stroke-linecap="round" d="m21 21-4.35-4.35"/>
+          </svg> Buscar
+        </button>
+        <button class="btn btn-secondary" onclick="exportarLeads()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M7 10l5 5 5-5M12 4v11"/>
+          </svg> Exportar CSV
+        </button>
+      </div>
+    </div>
+
+    <div id="alert-leads"></div>
+
+    <!-- RESULTADOS -->
+    <div class="card" id="leads-resultado" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="card-title" style="margin-bottom:0">Resultados: <span id="leads-total-res">0</span> leads</div>
+        <div style="display:flex;gap:6px" id="leads-paginacao"></div>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>CNPJ</th><th>Razão Social</th><th>UF</th><th>Município</th>
+            <th>Telefone</th><th>E-mail</th><th>CNAE</th><th>Situação</th>
+          </tr></thead>
+          <tbody id="leads-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -565,6 +677,7 @@ function goto(page){
   document.getElementById('nb-'+page).classList.add('active');
   if(page==='solicitacoes') listarSolicitacoes();
   if(page==='logs') carregarLogs();
+  if(page==='leads'){ carregarLeadsStats(); carregarCaptacoes(); }
 }
 
 // ---- ALERTS ----
@@ -654,7 +767,9 @@ async function previa(){
       <td>${e.email||'—'}</td>
     </tr>`).join('');
     document.getElementById('preview-card').style.display='block';
-    showAlert('alert-captacao','ok',`${lista.length} registro(s) na prévia.`);
+    showAlert('alert-captacao','ok',`${lista.length} registro(s) na prévia. <button class="btn btn-primary btn-sm" style="margin-left:10px" onclick="salvarPrevia()">💾 Salvar no banco</button>`);
+    window._previaData = lista;
+    window._previaFiltros = filtros();
   } catch(e){
     showAlert('alert-captacao','error','Exceção: '+String(e));
   }
@@ -934,6 +1049,197 @@ async function limparLogs(){
   ['log-count','log-errors','log-warns','log-infos'].forEach(id=>{
     document.getElementById(id).textContent='0';
   });
+}
+
+// ---- LEADS SALVOS ----
+let leadsPagAtual = 1;
+
+async function carregarLeadsStats(){
+  try {
+    const r = await fetch('/api/leads/stats');
+    const d = await r.json();
+    if(d.ok){
+      const s = d.stats;
+      document.getElementById('ls-total').textContent = s.total_leads.toLocaleString('pt-BR');
+      document.getElementById('ls-email').textContent = s.com_email.toLocaleString('pt-BR');
+      document.getElementById('ls-tel').textContent = s.com_telefone.toLocaleString('pt-BR');
+      document.getElementById('ls-ufs').textContent = s.ufs_distintas;
+      document.getElementById('ls-caps').textContent = s.total_captacoes;
+    }
+  } catch(e){}
+}
+
+async function carregarCaptacoes(){
+  const el = document.getElementById('captacoes-body');
+  el.innerHTML='<div style="text-align:center;color:#334155;padding:20px 0">Carregando...</div>';
+  try {
+    const r = await fetch('/api/leads/captacoes');
+    const d = await r.json();
+    if(!d.ok || !d.captacoes.length){
+      el.innerHTML='<div style="text-align:center;color:#334155;padding:20px 0">Nenhuma captação salva.</div>';
+      return;
+    }
+    // atualizar select de busca
+    const sel = document.getElementById('lb-captacao');
+    sel.innerHTML = '<option value="">Todas</option>' +
+      d.captacoes.map(c=>`<option value="${c.id}">${c.nome} (${c.total_leads} leads — ${c.criado_em||'?'})</option>`).join('');
+
+    el.innerHTML = `<div class="tbl-wrap"><table>
+      <thead><tr><th>ID</th><th>Nome</th><th>Usuário</th><th>Leads</th><th>Data</th><th>Ações</th></tr></thead>
+      <tbody>${d.captacoes.map(c=>`<tr>
+        <td>${c.id}</td>
+        <td><b>${c.nome}</b></td>
+        <td style="color:#475569;font-size:12px">${c.username||'—'}</td>
+        <td><span class="badge badge-blue">${c.total_leads}</span></td>
+        <td style="font-size:12px;color:#475569">${c.criado_em||'—'}</td>
+        <td>
+          <button class="btn btn-secondary btn-sm" onclick="buscarLeadsCaptacao(${c.id})">Ver leads</button>
+          <button class="btn btn-danger btn-sm" onclick="excluirCaptacao(${c.id},'${c.nome}')">Excluir</button>
+        </td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+  } catch(e){
+    el.innerHTML='<div style="text-align:center;color:#f87171;padding:20px 0">Erro: '+String(e)+'</div>';
+  }
+}
+
+function buscarLeadsCaptacao(id){
+  document.getElementById('lb-captacao').value = id;
+  buscarLeads(1);
+}
+
+async function excluirCaptacao(id,nome){
+  if(!confirm(`Excluir captação "${nome}" e todos os leads vinculados?`)) return;
+  await fetch(`/api/leads/captacoes/${id}`,{method:'DELETE'});
+  carregarCaptacoes();
+  carregarLeadsStats();
+}
+
+function filtrosLeads(){
+  return {
+    captacao_id: document.getElementById('lb-captacao').value || null,
+    uf: document.getElementById('lb-uf').value || null,
+    municipio: document.getElementById('lb-municipio').value || null,
+    cnae: document.getElementById('lb-cnae').value || null,
+    termo: document.getElementById('lb-termo').value || null,
+    com_email: document.getElementById('lb-email').checked,
+    com_telefone: document.getElementById('lb-tel').checked,
+    por_pagina: parseInt(document.getElementById('lb-porpag').value)||50,
+  };
+}
+
+async function buscarLeads(pagina){
+  leadsPagAtual = pagina || 1;
+  clearAlert('alert-leads');
+  const f = filtrosLeads();
+  f.pagina = leadsPagAtual;
+  try {
+    const r = await fetch('/api/leads/buscar',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(f)});
+    const d = await r.json();
+    if(!d.ok){ showAlert('alert-leads','error',d.msg||'Erro'); return; }
+
+    document.getElementById('leads-resultado').style.display='block';
+    document.getElementById('leads-total-res').textContent = d.total.toLocaleString('pt-BR');
+
+    const tbody = document.getElementById('leads-tbody');
+    if(!d.leads.length){
+      tbody.innerHTML='<tr><td colspan="8" style="text-align:center;color:#334155;padding:30px">Nenhum lead encontrado.</td></tr>';
+    } else {
+      tbody.innerHTML = d.leads.map(l=>`<tr>
+        <td style="font-size:12px;white-space:nowrap">${l.cnpj||'—'}</td>
+        <td>${l.razao_social||'—'}</td>
+        <td>${(l.uf||'').toUpperCase()}</td>
+        <td>${l.municipio||'—'}</td>
+        <td style="font-size:12px">${l.telefone_1||'—'}</td>
+        <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis">${l.email||'—'}</td>
+        <td style="font-size:11px;color:#475569">${l.cnae_principal||'—'}</td>
+        <td>${l.situacao?`<span class="badge ${l.situacao==='ATIVA'?'badge-green':'badge-gray'}">${l.situacao}</span>`:''}</td>
+      </tr>`).join('');
+    }
+
+    // paginação
+    const totalPags = Math.ceil(d.total / f.por_pagina);
+    const pagDiv = document.getElementById('leads-paginacao');
+    if(totalPags <= 1){ pagDiv.innerHTML=''; return; }
+    let btns = '';
+    if(leadsPagAtual > 1) btns += `<button class="btn btn-secondary btn-sm" onclick="buscarLeads(${leadsPagAtual-1})">← Ant</button>`;
+    btns += `<span style="padding:6px 10px;font-size:12px;color:#475569">${leadsPagAtual} / ${totalPags}</span>`;
+    if(leadsPagAtual < totalPags) btns += `<button class="btn btn-secondary btn-sm" onclick="buscarLeads(${leadsPagAtual+1})">Próx →</button>`;
+    pagDiv.innerHTML = btns;
+  } catch(e){
+    showAlert('alert-leads','error','Exceção: '+String(e));
+  }
+}
+
+async function exportarLeads(){
+  const f = filtrosLeads();
+  try {
+    const r = await fetch('/api/leads/exportar',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(f)});
+    if(!r.ok){
+      const d = await r.json();
+      showAlert('alert-leads','error',d.msg||'Erro ao exportar');
+      return;
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'leads_salvos.csv'; a.click();
+    URL.revokeObjectURL(url);
+    showAlert('alert-leads','ok','CSV exportado com sucesso!');
+  } catch(e){
+    showAlert('alert-leads','error','Exceção: '+String(e));
+  }
+}
+
+async function importarCSV(){
+  clearAlert('alert-imp');
+  const file = document.getElementById('imp-file').files[0];
+  if(!file){ showAlert('alert-imp','warn','Selecione um arquivo CSV.'); return; }
+  const nome = document.getElementById('imp-nome').value || 'importacao';
+  const fd = new FormData();
+  fd.append('arquivo', file);
+  fd.append('nome', nome);
+  showAlert('alert-imp','info','Importando...');
+  try {
+    const r = await fetch('/api/leads/importar-csv',{method:'POST',body:fd});
+    const d = await r.json();
+    if(d.ok){
+      showAlert('alert-imp','ok',`Importados ${d.total} leads com sucesso!`);
+      carregarCaptacoes();
+      carregarLeadsStats();
+    } else {
+      showAlert('alert-imp','error',d.msg);
+    }
+  } catch(e){
+    showAlert('alert-imp','error','Exceção: '+String(e));
+  }
+}
+
+async function salvarPrevia(){
+  if(!window._previaData || !window._previaData.length){
+    showAlert('alert-captacao','warn','Nenhum dado para salvar.');
+    return;
+  }
+  showAlert('alert-captacao','info','Salvando leads no banco...');
+  try {
+    const r = await fetch('/api/leads/importar-previa',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        dados: window._previaData,
+        nome: document.getElementById('nome').value || 'previa',
+        filtros: window._previaFiltros || {}
+      })});
+    const d = await r.json();
+    if(d.ok){
+      showAlert('alert-captacao','ok',`${d.total} leads salvos no banco! Acesse a aba Leads Salvos para consultar.`);
+    } else {
+      showAlert('alert-captacao','error',d.msg);
+    }
+  } catch(e){
+    showAlert('alert-captacao','error','Exceção: '+String(e));
+  }
 }
 </script>
 </body>
@@ -1260,6 +1566,147 @@ def baixar(uuid):
         content_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename_csv}"'},
     )
+
+# =========================================================
+# ROUTES — LEADS (persistência)
+# =========================================================
+
+@app.route("/api/leads/stats")
+@login_required
+def api_leads_stats():
+    return jsonify({"ok": True, "stats": stats_leads()})
+
+
+@app.route("/api/leads/captacoes")
+@login_required
+def api_leads_captacoes():
+    uid = None if session.get("is_admin") else session["uid"]
+    return jsonify({"ok": True, "captacoes": listar_captacoes(uid)})
+
+
+@app.route("/api/leads/captacoes/<int:cid>", methods=["DELETE"])
+@login_required
+def api_leads_excluir_captacao(cid):
+    excluir_captacao(cid)
+    add_log("INFO", "leads", f"Captação {cid} excluída por {session.get('username')}")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/leads/buscar", methods=["POST"])
+@login_required
+def api_leads_buscar():
+    d = request.json or {}
+    leads, total = buscar_leads(
+        captacao_id=d.get("captacao_id"),
+        uf=d.get("uf"),
+        municipio=d.get("municipio"),
+        cnae=d.get("cnae"),
+        termo=d.get("termo"),
+        com_email=d.get("com_email", False),
+        com_telefone=d.get("com_telefone", False),
+        pagina=d.get("pagina", 1),
+        por_pagina=d.get("por_pagina", 50),
+    )
+    # limpar campo importado_em para serializar
+    for l in leads:
+        if l.get("importado_em"):
+            l["importado_em"] = str(l["importado_em"])
+    return jsonify({"ok": True, "leads": leads, "total": total})
+
+
+@app.route("/api/leads/exportar", methods=["POST"])
+@login_required
+def api_leads_exportar():
+    """Exporta leads salvos como CSV (sem gastar créditos)."""
+    d = request.json or {}
+    leads = exportar_leads_csv(
+        captacao_id=d.get("captacao_id"),
+        uf=d.get("uf"),
+        municipio=d.get("municipio"),
+        cnae=d.get("cnae"),
+        termo=d.get("termo"),
+        com_email=d.get("com_email", False),
+        com_telefone=d.get("com_telefone", False),
+    )
+    if not leads:
+        return jsonify({"ok": False, "msg": "Nenhum lead encontrado."})
+
+    import csv as csv_mod
+    output = io.StringIO()
+    campos_csv = [
+        "cnpj", "razao_social", "nome_fantasia", "situacao",
+        "cnae_principal", "cnae_descricao", "uf", "municipio", "bairro",
+        "cep", "logradouro", "numero", "complemento",
+        "telefone_1", "telefone_2", "email", "porte",
+        "capital_social", "natureza_juridica", "data_abertura",
+    ]
+    writer = csv_mod.DictWriter(output, fieldnames=campos_csv,
+                                 extrasaction="ignore")
+    writer.writeheader()
+    for l in leads:
+        writer.writerow(l)
+
+    add_log("INFO", "leads", f"Exportação CSV: {len(leads)} leads por {session.get('username')}")
+    return Response(
+        output.getvalue(),
+        content_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="leads_salvos.csv"'},
+    )
+
+
+@app.route("/api/leads/importar-csv", methods=["POST"])
+@login_required
+def api_leads_importar_csv():
+    """Importa CSV manualmente (upload de arquivo)."""
+    import csv as csv_mod
+
+    if "arquivo" not in request.files:
+        return jsonify({"ok": False, "msg": "Envie um arquivo CSV."})
+
+    arquivo = request.files["arquivo"]
+    nome = request.form.get("nome", arquivo.filename or "upload")
+
+    try:
+        conteudo = arquivo.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        return jsonify({"ok": False, "msg": f"Erro ao ler arquivo: {e}"})
+
+    reader = csv_mod.DictReader(io.StringIO(conteudo), delimiter=",")
+    rows = list(reader)
+
+    # detectar delimitador ; se , não funcionou
+    if rows and len(rows[0]) <= 1:
+        reader = csv_mod.DictReader(io.StringIO(conteudo), delimiter=";")
+        rows = list(reader)
+
+    if not rows:
+        return jsonify({"ok": False, "msg": "CSV vazio ou formato inválido."})
+
+    cap_id = criar_captacao(session["uid"], nome, "{}")
+    total = importar_leads(cap_id, rows)
+    add_log("INFO", "leads",
+            f"CSV importado: {total} leads de '{nome}' por {session.get('username')}")
+    return jsonify({"ok": True, "total": total, "captacao_id": cap_id})
+
+
+@app.route("/api/leads/importar-previa", methods=["POST"])
+@login_required
+def api_leads_importar_previa():
+    """Salva os dados da prévia diretamente no banco."""
+    d = request.json or {}
+    dados = d.get("dados", [])
+    nome = d.get("nome", "previa")
+    filtros = d.get("filtros", "{}")
+
+    if not dados:
+        return jsonify({"ok": False, "msg": "Sem dados para importar."})
+
+    cap_id = criar_captacao(session["uid"], nome, json.dumps(filtros) if isinstance(filtros, dict) else filtros)
+    total = importar_leads(cap_id, dados)
+    add_log("INFO", "leads",
+            f"Prévia salva: {total} leads em '{nome}' por {session.get('username')}")
+    return jsonify({"ok": True, "total": total, "captacao_id": cap_id})
+
 
 # =========================================================
 # MAIN
